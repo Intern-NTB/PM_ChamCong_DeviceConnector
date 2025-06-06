@@ -1,0 +1,30 @@
+syntax = "proto3";
+
+import "google/protobuf/empty.proto";
+
+option csharp_namespace = "DeviceConnector.Protos";
+
+package device;
+
+service DeviceConnector{
+	rpc GetDeviceSerial (GetDeviceSerialRequest) returns (GetDeviceSerialDeviceResponse);
+	rpc Connect (ConnectRequest) returns (ConnectResponse);
+	rpc Disconnect (google.protobuf.Empty) returns (google.protobuf.Empty);
+}
+
+message GetDeviceSerialRequest {
+	string deviceNumber = 1;
+}
+
+message GetDeviceSerialDeviceResponse {
+	string serialNumber = 1;
+}
+
+message ConnectRequest {
+	string ipAddress = 1;
+	string port = 2;
+}
+
+message ConnectResponse {
+	bool success = 1;
+}

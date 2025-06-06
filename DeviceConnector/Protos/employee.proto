@@ -1,0 +1,33 @@
+syntax ="proto3";
+
+option csharp_namespace = "DeviceConnector.Protos";
+
+package employee;
+
+service EmployeeService {
+  rpc UploadEmployeeData (UploadEmployeeDataRequest) returns (UploadEmployeeDataResponse);
+  rpc GetEmployeeData (GetEmployeeDataRequest) returns (GetEmployeeDataResponse);
+}
+
+message UploadEmployeeDataRequest {
+  string employeeId = 1;
+  string name = 2;
+  int32 privilege = 3;
+  bool enable = 4;
+}
+
+message UploadEmployeeDataResponse {
+  bool success = 1;
+  string message = 2;
+}
+
+message GetEmployeeDataRequest {
+  string employeeId = 1;
+}
+
+message GetEmployeeDataResponse {
+  string employeeId = 1;
+  string name = 2;
+  int32 privilege = 3;
+  bool enable = 4;
+}
