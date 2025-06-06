@@ -2,53 +2,50 @@
 using Google.Protobuf.WellKnownTypes;
 using Grpc.Core;
 using System.Diagnostics;
-using zkemkeeper;
+using DeviceConnector.Helper;
 
 namespace DeviceConnector.Services
 {
     public class DeviceService : DeviceConnector.Protos.DeviceConnector.DeviceConnectorBase
     {
-        private readonly CZKEM _czkemClass;
-        private bool _isConnected = false;
-        public DeviceService()
+        private readonly SDKHelper _sdkHelper;
+
+        public DeviceService(SDKHelper sdkHelper)
         {
-            _czkemClass = new CZKEM();
+            _sdkHelper = sdkHelper;
         }
 
         public override Task<ConnectResponse> Connect(ConnectRequest request, ServerCallContext context)
         {
             Debug.WriteLine($"Received connection request for device: {request.IpAddress}, {request.Port}");
-            // Here you would implement the logic to connect to the device.  
-            if (_isConnected)
+
+            if (_sdkHelper.GetConnectionStatus())
             {
                 Debug.WriteLine("Already connected to the device.");
                 return Task.FromResult(new ConnectResponse { Success = true });
             }
 
-            if (_czkemClass.Connect_Net(request.IpAddress, request.Port))
+            if (_sdkHelper.Connect(request.IpAddress, request.Port))
             {
                 Debug.WriteLine($"Successfully connected to the device at {request.IpAddress}:{request.Port}");
-                _isConnected = true;
+                return Task.FromResult(new ConnectResponse { Success = true });
             }
             else
             {
                 Debug.WriteLine($"Failed to connect to the device at {request.IpAddress}:{request.Port}");
                 return Task.FromResult(new ConnectResponse { Success = false, Message = "Failed to connect to the device." });
-
             }
-            return Task.FromResult(new ConnectResponse { Success = true });
         }
 
         public override Task<DisconnectResponse> Disconnect(Empty request, ServerCallContext context)
         {
             Debug.WriteLine("Received disconnect request.");
-            if (!_isConnected)
+            if (!_sdkHelper.GetConnectionStatus())
             {
                 Debug.WriteLine("Not connected to any device.");
                 return Task.FromResult(new DisconnectResponse { Success = false, Message = "Not connected to any device." });
             }
-            _czkemClass.Disconnect();
-            _isConnected = false;
+            _sdkHelper.Disconnect();
             Debug.WriteLine("Successfully disconnected from the device.");
             return Task.FromResult(new DisconnectResponse { Success = true });
         }
@@ -56,13 +53,14 @@ namespace DeviceConnector.Services
         public override Task<GetDeviceSerialDeviceResponse> GetDeviceSerial(GetDeviceSerialRequest request, ServerCallContext context)
         {
             Debug.WriteLine("Received request for device serial number.");
-            if (!_isConnected)
+            if (!_sdkHelper.GetConnectionStatus())
             {
                 Debug.WriteLine("Not connected to any device.");
                 return Task.FromResult(new GetDeviceSerialDeviceResponse { SerialNumber = "Not connected" });
             }
-            
-            if (_czkemClass.GetSerialNumber(request.DeviceNumber, out string serialNumber))
+
+            string serialNumber = _sdkHelper.GetDeviceSerial();
+            if (!string.IsNullOrEmpty(serialNumber))
             {
                 Debug.WriteLine($"Device serial number: {serialNumber}");
                 return Task.FromResult(new GetDeviceSerialDeviceResponse { SerialNumber = serialNumber });

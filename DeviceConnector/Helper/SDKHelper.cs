@@ -42,14 +42,14 @@ namespace DeviceConnector.Helper
                 {
                     return _deviceSerial;
                 }
-                return "Not connected or serial number not available";
+                return string.Empty;
             }
 
             if (GetConnectionStatus() == true && connector.GetSerialNumber(GetDeviceNumber(), out _deviceSerial))
             {
                 return _deviceSerial;
             }
-            return "Not connected or serial number not available";
+            return string.Empty;
         }
 
         public void SetDeviceSerial(string deviceSerial)
@@ -130,22 +130,20 @@ namespace DeviceConnector.Helper
                 {
                     throw new InvalidOperationException("Not connected to the device.");
                 }
+                Employee employee = new();
                 string Name = string.Empty;
                 string Password = string.Empty;
                 int Privilege = 0;
                 bool Enabled = false;
                 if (connector.GetUserInfo(_deviceNumber, employeeId, ref Name, ref Password, ref Privilege, ref Enabled))
                 {
-                    return new Employee
-                    {
-                        employeeId = employeeId,
-                        name = Name,
-                        password = Password,
-                        privilege = Privilege,
-                        enabled = Enabled
-                    };
-                }
-                return null;
+                    employee.employeeId = employeeId;
+                    employee.name = Name;
+                    employee.password = Password;
+                    employee.privilege = Privilege;
+                    employee.enabled = Enabled;
+            }
+                return employee;
             }
 
             public bool SetUser(Employee employee)
@@ -168,22 +166,23 @@ namespace DeviceConnector.Helper
                 {
                     throw new InvalidOperationException("Not connected to the device.");
                 }
+
+
+                Fingerprint fingerprint = new Fingerprint();
+                string fingerData = string.Empty;
+                int tmpLength = 0;
+
                 if (connector.ReadAllTemplate(_deviceNumber))
                 {
-                    string fingerData = string.Empty;
-                    int tmpLength = 0;
                     if (connector.GetUserTmpStr(_deviceNumber, employeeId, fingerIndex, ref fingerData, ref tmpLength))
                     {
-                        return new Fingerprint
-                        {
-                            employeeId = employeeId,
-                            fingerIndex = fingerIndex,
-                            fingerData = fingerData,
-                            fingerLength = tmpLength
-                        };
-                    }
+                        fingerprint.employeeId = employeeId;
+                        fingerprint.fingerIndex = fingerIndex;
+                        fingerprint.fingerData = fingerData;
+                        fingerprint.fingerLength = tmpLength;
                 }
-                return null;
+                }
+                return fingerprint;
             }
 
             public bool SetFingerprint(Fingerprint fingerprint)
