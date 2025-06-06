@@ -9,25 +9,27 @@ service EmployeeService {
   rpc GetEmployeeData (GetEmployeeDataRequest) returns (GetEmployeeDataResponse);
 }
 
+message employee {
+	int32 employeeId = 1;
+	string name = 2;
+	int32 privilege = 3; // 0: normal, 1: admin, 2: superadmin
+	bool enable = 4; // true: enabled, false: disabled
+}
+
 message UploadEmployeeDataRequest {
-  string employeeId = 1;
-  string name = 2;
-  int32 privilege = 3;
-  bool enable = 4;
+	employee employee = 1;
 }
 
 message UploadEmployeeDataResponse {
-  bool success = 1;
-  string message = 2;
+	bool success = 1;
+	string message = 2;
 }
 
 message GetEmployeeDataRequest {
-  string employeeId = 1;
+	int32 employeeId = 1;
 }
 
 message GetEmployeeDataResponse {
-  string employeeId = 1;
-  string name = 2;
-  int32 privilege = 3;
-  bool enable = 4;
+	employee employee = 1; 
+	string message = 2; 
 }

@@ -39,6 +39,20 @@ namespace DeviceConnector.Services
             return Task.FromResult(new ConnectResponse { Success = true });
         }
 
+        public override Task<DisconnectResponse> Disconnect(Empty request, ServerCallContext context)
+        {
+            Debug.WriteLine("Received disconnect request.");
+            if (!_isConnected)
+            {
+                Debug.WriteLine("Not connected to any device.");
+                return Task.FromResult(new DisconnectResponse { Success = false, Message = "Not connected to any device." });
+            }
+            _czkemClass.Disconnect();
+            _isConnected = false;
+            Debug.WriteLine("Successfully disconnected from the device.");
+            return Task.FromResult(new DisconnectResponse { Success = true });
+        }
+
         public override Task<GetDeviceSerialDeviceResponse> GetDeviceSerial(GetDeviceSerialRequest request, ServerCallContext context)
         {
             Debug.WriteLine("Received request for device serial number.");
@@ -48,7 +62,7 @@ namespace DeviceConnector.Services
                 return Task.FromResult(new GetDeviceSerialDeviceResponse { SerialNumber = "Not connected" });
             }
             
-            if (_czkemClass.GetSerialNumber(out string serialNumber))
+            if (_czkemClass.GetSerialNumber(request.DeviceNumber, out string serialNumber))
             {
                 Debug.WriteLine($"Device serial number: {serialNumber}");
                 return Task.FromResult(new GetDeviceSerialDeviceResponse { SerialNumber = serialNumber });

@@ -1,10 +1,11 @@
-
+using DeviceConnector.Helper;
 using DeviceConnector.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
 // Add services to the container.
 builder.Services.AddGrpc();
+builder.Services.AddSingleton<SDKHelper>();
 
 var app = builder.Build();
 

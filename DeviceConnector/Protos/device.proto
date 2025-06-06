@@ -13,7 +13,7 @@ service DeviceConnector{
 }
 
 message GetDeviceSerialRequest {
-	string deviceNumber = 1;
+	int32 deviceNumber = 1;
 }
 
 message GetDeviceSerialDeviceResponse {
@@ -32,4 +32,5 @@ message ConnectResponse {
 
 message DisconnectResponse {
 	bool success = 1;
+	string message = 2;
 }
