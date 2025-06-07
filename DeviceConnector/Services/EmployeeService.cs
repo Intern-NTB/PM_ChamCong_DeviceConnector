@@ -97,11 +97,9 @@ namespace DeviceConnector.Services
             };
         }
 
-        // Add new method for batch uploads
         public override async Task<BatchUploadEmployeeDataResponse> BatchUploadEmployeeData(BatchUploadEmployeeDataRequest request, ServerCallContext context)
         {
             var response = new BatchUploadEmployeeDataResponse();
-            var results = new List<UploadResult>();
             
             if (request.Employees.Count == 0)
             {
@@ -109,36 +107,34 @@ namespace DeviceConnector.Services
                 return response;
             }
 
-            // Process employees concurrently
-            var tasks = request.Employees.Select(async empData => 
+            // Convert request employees to Employee list
+            var employees = request.Employees.Select(empData => new Employee
             {
-                var employee = new Employee
-                {
-                    employeeId = empData.EmployeeId,
-                    name = empData.Name,
-                    password = empData.Password,
-                    privilege = empData.Privilege,
-                    enabled = empData.Enable
-                };
-                
-                bool success = await _sdkHelper.SetUserAsync(employee);
-                
-                return new UploadResult 
-                { 
-                    EmployeeId = employee.employeeId,
-                    Success = success,
-                    Message = success ? "Success" : "Failed"
-                };
+                employeeId = empData.EmployeeId,
+                name = empData.Name,
+                password = empData.Password,
+                privilege = empData.Privilege,
+                enabled = empData.Enable
             }).ToList();
-            
-            // Wait for all uploads to complete
-            var uploadResults = await Task.WhenAll(tasks);
-            
+
+            // Use batch upload
+            bool success = await _sdkHelper.BatchSetUserAsync(employees);
+
+            // Create results based on batch operation
+            var results = employees.Select(emp => new UploadResult
+            {
+                EmployeeId = emp.employeeId,
+                Success = success, // All succeed or all fail in batch operation
+                Message = success ? "Success" : "Failed"
+            }).ToList();
+
             // Add results to response
-            response.Results.AddRange(uploadResults);
-            response.SuccessCount = uploadResults.Count(r => r.Success);
-            response.FailureCount = uploadResults.Length - response.SuccessCount;
-            response.Message = $"Uploaded {response.SuccessCount} of {uploadResults.Length} employees.";
+            response.Results.AddRange(results);
+            response.SuccessCount = success ? results.Count : 0;
+            response.FailureCount = success ? 0 : results.Count;
+            response.Message = success 
+                ? $"Successfully uploaded {results.Count} employees." 
+                : $"Failed to upload {results.Count} employees.";
             
             return response;
         }
