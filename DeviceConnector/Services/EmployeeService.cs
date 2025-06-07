@@ -1,13 +1,15 @@
 ﻿using DeviceConnector.Protos;
 using Grpc.Core;
-using DeviceConnector.Helper;
-using DeviceConnector.Model;
-using System.Threading.Tasks;
 using Google.Protobuf.WellKnownTypes;
+using SDK.Helper;
+using Shared.Model;
+using System.Collections.Generic;
+using System.Linq;
+using System.Threading.Tasks;
 
 namespace DeviceConnector.Services
 {
-    public class EmployeeService : DeviceConnector.Protos.EmployeeService.EmployeeServiceBase
+    public class EmployeeService : Protos.EmployeeService.EmployeeServiceBase
     {
         private readonly SDKHelper _sdkHelper;
 
@@ -16,14 +18,14 @@ namespace DeviceConnector.Services
             _sdkHelper = sdkHelper;
         }
 
-        public override Task<GetAllEmployeesResponse> GetAllEmployees(Empty request, ServerCallContext context)
+        public override async Task<GetAllEmployeesResponse> GetAllEmployees(Empty request, ServerCallContext context)
         {
             var response = new GetAllEmployeesResponse();
-            var employees = _sdkHelper.GetAllEmployee();
+            var employees = await _sdkHelper.GetAllEmployeeAsync();
             if (employees == null || employees.Count == 0)
             {
                 response.Message = "No employees found.";
-                return Task.FromResult(response);
+                return response;
             }
             foreach (var employee in employees)
             {
@@ -37,19 +39,19 @@ namespace DeviceConnector.Services
                 });
             }
             response.Message = "Employee list retrieved successfully.";
-            return Task.FromResult(response);
+            return response;
         }
 
-        public override Task<GetEmployeeDataResponse> GetEmployeeData(GetEmployeeDataRequest request, ServerCallContext context)
+        public override async Task<GetEmployeeDataResponse> GetEmployeeData(GetEmployeeDataRequest request, ServerCallContext context)
         {
-            Employee employee = _sdkHelper.GetUser(request.EmployeeId);
+            Employee employee = await _sdkHelper.GetUserAsync(request.EmployeeId);
 
             var response = new GetEmployeeDataResponse();
 
             if (employee == null)
             {
                 response.Message = "Employee not found.";
-                return Task.FromResult(response);
+                return response;
             }
 
             response.Employee = new employee
@@ -62,11 +64,21 @@ namespace DeviceConnector.Services
             };
             response.Message = "Employee data retrieved successfully.";
 
-            return Task.FromResult(response);
+            return response;
         }
 
-        public override Task<UploadEmployeeDataResponse> UploadEmployeeData(UploadEmployeeDataRequest request, ServerCallContext context)
+        public override async Task<UploadEmployeeDataResponse> UploadEmployeeData(UploadEmployeeDataRequest request, ServerCallContext context)
         {
+            if (request.Employee == null)
+            {
+                return new UploadEmployeeDataResponse
+                {
+                    Success = false,
+                    Message = "No employee data provided."
+                };
+            }
+
+            // Create Employee object from request
             var employee = new Employee
             {
                 employeeId = request.Employee.EmployeeId,
@@ -75,13 +87,60 @@ namespace DeviceConnector.Services
                 privilege = request.Employee.Privilege,
                 enabled = request.Employee.Enable
             };
-            bool success = _sdkHelper.SetUser(employee);
-            var response = new UploadEmployeeDataResponse
+
+            bool success = await _sdkHelper.SetUserAsync(employee);
+            
+            return new UploadEmployeeDataResponse
             {
                 Success = success,
                 Message = success ? "Employee data uploaded successfully." : "Failed to upload employee data."
             };
-            return Task.FromResult(response);
+        }
+
+        // Add new method for batch uploads
+        public override async Task<BatchUploadEmployeeDataResponse> BatchUploadEmployeeData(BatchUploadEmployeeDataRequest request, ServerCallContext context)
+        {
+            var response = new BatchUploadEmployeeDataResponse();
+            var results = new List<UploadResult>();
+            
+            if (request.Employees.Count == 0)
+            {
+                response.Message = "No employees to upload.";
+                return response;
+            }
+
+            // Process employees concurrently
+            var tasks = request.Employees.Select(async empData => 
+            {
+                var employee = new Employee
+                {
+                    employeeId = empData.EmployeeId,
+                    name = empData.Name,
+                    password = empData.Password,
+                    privilege = empData.Privilege,
+                    enabled = empData.Enable
+                };
+                
+                bool success = await _sdkHelper.SetUserAsync(employee);
+                
+                return new UploadResult 
+                { 
+                    EmployeeId = employee.employeeId,
+                    Success = success,
+                    Message = success ? "Success" : "Failed"
+                };
+            }).ToList();
+            
+            // Wait for all uploads to complete
+            var uploadResults = await Task.WhenAll(tasks);
+            
+            // Add results to response
+            response.Results.AddRange(uploadResults);
+            response.SuccessCount = uploadResults.Count(r => r.Success);
+            response.FailureCount = uploadResults.Length - response.SuccessCount;
+            response.Message = $"Uploaded {response.SuccessCount} of {uploadResults.Length} employees.";
+            
+            return response;
         }
     }
 }

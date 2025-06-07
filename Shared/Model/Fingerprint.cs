@@ -1,4 +1,4 @@
-﻿namespace DeviceConnector.Model
+﻿namespace Shared.Model
 {
     public class Fingerprint
     {

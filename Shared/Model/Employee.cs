@@ -1,4 +1,4 @@
-﻿namespace DeviceConnector.Model
+﻿namespace Shared.Model
 {
     public class Employee
     {
@@ -6,6 +6,6 @@
         public string name { get; set; }
         public string password { get; set; }
         public int privilege { get; set; }
-        public Boolean enabled { get; set; }
+        public bool enabled { get; set; }
     }
 }
