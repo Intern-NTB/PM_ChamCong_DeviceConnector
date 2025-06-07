@@ -513,12 +513,12 @@ namespace SDK.Helper
                     throw;
                 }
             }
-            public async Task<bool> GetAllFingerprintsAsync()
+            public async Task<(bool Success, int TotalFound, int SavedCount)> GetAllFingerprintsAsync()
             {
                 try
                 {
                     _logger.LogInformation("Starting to get all fingerprints from device and save to database");
-                    
+
                     if (!GetConnectionStatus())
                     {
                         var ex = new InvalidOperationException("Not connected to the device.");
@@ -531,7 +531,7 @@ namespace SDK.Helper
                     if (employees == null || !employees.Any())
                     {
                         _logger.LogWarning("No employees found on device");
-                        return false;
+                        return (false, 0, 0);
                     }
 
                     int totalFingerprints = 0;
@@ -541,7 +541,7 @@ namespace SDK.Helper
                     foreach (var employee in employees)
                     {
                         _logger.LogInformation("Getting fingerprints for employee ID: {EmployeeId}", employee.employeeId);
-                        
+
                         bool readResult = await Task.Run(() => connector.ReadAllTemplate(_deviceNumber));
                         if (!readResult)
                         {
@@ -554,18 +554,18 @@ namespace SDK.Helper
                         {
                             string fingerData = string.Empty;
                             int tmpLength = 0;
-                            
+
                             bool getResult = await Task.Run(() => connector.SSR_GetUserTmpStr(
-                                _deviceNumber, 
-                                employee.employeeId.ToString(), 
-                                fingerIndex, 
-                                out fingerData, 
+                                _deviceNumber,
+                                employee.employeeId.ToString(),
+                                fingerIndex,
+                                out fingerData,
                                 out tmpLength));
-                                
+
                             if (getResult && !string.IsNullOrEmpty(fingerData))
                             {
                                 totalFingerprints++;
-                                
+
                                 try
                                 {
                                     var vanTay = new NhanVienVanTay
@@ -574,18 +574,21 @@ namespace SDK.Helper
                                         ViTriNgonTay = fingerIndex,
                                         DuLieuVanTay = fingerData
                                     };
-                                    
+
                                     int dbResult = await _nhanVienRepository.SetNhanVienVanTay(vanTay);
-                                    if (dbResult > 0)
+
+                                    // For Dapper repository, we need to consider -1 as a success code
+                                    // This is common in stored procedures or merge operations
+                                    if (dbResult > 0 || dbResult == -1)
                                     {
                                         savedFingerprints++;
-                                        _logger.LogDebug("Saved fingerprint for employee ID: {EmployeeId}, finger index: {FingerIndex}",
-                                            employee.employeeId, fingerIndex);
+                                        _logger.LogDebug("Saved fingerprint for employee ID: {EmployeeId}, finger index: {FingerIndex}, Result: {Result}",
+                                            employee.employeeId, fingerIndex, dbResult);
                                     }
                                     else
                                     {
-                                        _logger.LogWarning("Failed to save fingerprint for employee ID: {EmployeeId}, finger index: {FingerIndex}",
-                                            employee.employeeId, fingerIndex);
+                                        _logger.LogWarning("Failed to save fingerprint for employee ID: {EmployeeId}, finger index: {FingerIndex}, Result: {Result}",
+                                            employee.employeeId, fingerIndex, dbResult);
                                     }
                                 }
                                 catch (Exception ex)
@@ -599,8 +602,9 @@ namespace SDK.Helper
 
                     _logger.LogInformation("Finished getting fingerprints. Total found: {Total}, Successfully saved: {Saved}",
                         totalFingerprints, savedFingerprints);
-                    
-                    return savedFingerprints > 0;
+
+                    // Consider the operation successful if we found any fingerprints, regardless of save count
+                    return (totalFingerprints > 0, totalFingerprints, savedFingerprints);
                 }
                 catch (Exception ex)
                 {
@@ -608,49 +612,46 @@ namespace SDK.Helper
                     throw;
                 }
             }
-
             public async Task<bool> SetFingerprintAsync(Fingerprint fingerprint)
-            {
-                try
                 {
-                    _logger.LogInformation("Setting fingerprint for employee ID: {EmployeeId}, finger index: {FingerIndex}", 
-                        fingerprint.employeeId, fingerprint.fingerIndex);
-                        
-                    if (!GetConnectionStatus())
+                    try
                     {
-                        var ex = new InvalidOperationException("Not connected to the device.");
-                        _logger.LogError(ex, "Failed to set fingerprint: not connected");
-                        throw ex;
-                    }
-                    
-                    bool result = await Task.Run(() => connector.SetUserTmpStr(
-                        _deviceNumber, 
-                        fingerprint.employeeId, 
-                        fingerprint.fingerIndex, 
-                        fingerprint.fingerData));
-                        
-                    if (result)
-                    {
-                        _logger.LogInformation("Successfully set fingerprint for employee ID: {EmployeeId}, finger index: {FingerIndex}",
+                        _logger.LogInformation("Setting fingerprint for employee ID: {EmployeeId}, finger index: {FingerIndex}", 
                             fingerprint.employeeId, fingerprint.fingerIndex);
-                    }
-                    else
-                    {
-                        _logger.LogWarning("Failed to set fingerprint for employee ID: {EmployeeId}, finger index: {FingerIndex}",
-                            fingerprint.employeeId, fingerprint.fingerIndex);
-                    }
+                        
+                        if (!GetConnectionStatus())
+                        {
+                            var ex = new InvalidOperationException("Not connected to the device.");
+                            _logger.LogError(ex, "Failed to set fingerprint: not connected");
+                            throw ex;
+                        }
                     
-                    return result;
+                        bool result = await Task.Run(() => connector.SetUserTmpStr(
+                            _deviceNumber, 
+                            fingerprint.employeeId, 
+                            fingerprint.fingerIndex, 
+                            fingerprint.fingerData));
+                        
+                        if (result)
+                        {
+                            _logger.LogInformation("Successfully set fingerprint for employee ID: {EmployeeId}, finger index: {FingerIndex}",
+                                fingerprint.employeeId, fingerprint.fingerIndex);
+                        }
+                        else
+                        {
+                            _logger.LogWarning("Failed to set fingerprint for employee ID: {EmployeeId}, finger index: {FingerIndex}",
+                                fingerprint.employeeId, fingerprint.fingerIndex);
+                        }
+                    
+                        return result;
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "Error setting fingerprint for employee ID: {EmployeeId}, finger index: {FingerIndex}",
+                            fingerprint.employeeId, fingerprint.fingerIndex);
+                        throw;
+                    }
                 }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "Error setting fingerprint for employee ID: {EmployeeId}, finger index: {FingerIndex}",
-                        fingerprint.employeeId, fingerprint.fingerIndex);
-                    throw;
-                }
-            }
-
-        
             public async Task<bool> BatchSetFingerprintsAsync(List<Fingerprint> fingerprints)
             {
                 if (!GetConnectionStatus() || !fingerprints.Any())
@@ -675,7 +676,7 @@ namespace SDK.Helper
                     try
                     {
                         // Begin batch update mode
-                        if (!await Task.Run(() => connector.BeginBatchUpdate(_deviceNumber, 2))) // 2 for fingerprint data
+                        if (!await Task.Run(() => connector.BeginBatchUpdate(_deviceNumber, 1))) // 2 for fingerprint data
                         {
                             int errorCode = 0;
                             connector.GetLastError(ref errorCode);
@@ -684,17 +685,49 @@ namespace SDK.Helper
                         }
 
                         _logger.LogInformation("Device is in batch update mode. Sending fingerprint data...");
-                        
-                        // Add each fingerprint to the batch
+                         connector.ReadAllTemplate(_deviceNumber);
                         foreach (var fingerprint in fingerprints)
                         {
-                            if (!connector.SSR_SetUserTmpStr(
+                            // Validate fingerprint data
+                            if (string.IsNullOrEmpty(fingerprint.fingerData))
+                            {
+                                _logger.LogWarning("Skipping fingerprint for employee {EmployeeId}, finger index {FingerIndex} - Empty fingerprint data",
+                                    fingerprint.employeeId, fingerprint.fingerIndex);
+                                continue;
+                            }
+
+                            // Validate finger index (typically 1-10)
+                            if (fingerprint.fingerIndex < 1 || fingerprint.fingerIndex > 10)
+                            {
+                                _logger.LogWarning("Skipping fingerprint for employee {EmployeeId}, finger index {FingerIndex} - Invalid finger index",
+                                    fingerprint.employeeId, fingerprint.fingerIndex);
+                                continue;
+                            }
+
+                            // Try to add fingerprint to batch
+                            bool addResult = connector.SSR_SetUserTmpStr(
                                 _deviceNumber,
                                 fingerprint.employeeId.ToString(),
                                 fingerprint.fingerIndex,
-                                fingerprint.fingerData))
+                                fingerprint.fingerData);
+
+                            if (!addResult)
                             {
-                                _logger.LogWarning("Could not add fingerprint for employee {EmployeeId}, finger index {FingerIndex} to the batch.",
+                                int errorCode = 0;
+                                connector.GetLastError(ref errorCode);
+                                _logger.LogWarning("Could not add fingerprint for employee {EmployeeId}, finger index {FingerIndex} to the batch, error code {ErrorCode}",
+                                    fingerprint.employeeId, fingerprint.fingerIndex, errorCode);
+
+                                // If error is -100, it might mean the fingerprint data is invalid or corrupted
+                                if (errorCode == -100)
+                                {
+                                    _logger.LogWarning("Fingerprint data might be invalid or corrupted for employee {EmployeeId}, finger index {FingerIndex}",
+                                        fingerprint.employeeId, fingerprint.fingerIndex);
+                                }
+                            }
+                            else
+                            {
+                                _logger.LogDebug("Successfully added fingerprint for employee {EmployeeId}, finger index {FingerIndex} to batch",
                                     fingerprint.employeeId, fingerprint.fingerIndex);
                             }
                         }
@@ -760,9 +793,9 @@ namespace SDK.Helper
                 bool result = await Task.Run(() => connector.RegEvent(_deviceNumber, 65535));
                 if (result)
                 {
-                    connector.OnEnrollFinger += new _IZKEMEvents_OnEnrollFingerEventHandler(OnEnrollFingerEvent);
+                    //connector.OnEnrollFinger += new _IZKEMEvents_OnEnrollFingerEventHandler(OnEnrollFingerEvent);
                     //connector.OnEnrollFingerEx += new _IZKEMEvents_OnEnrollFingerExEventHandler(OnEnrollFingerEvent);
-                    connector.OnFinger += new _IZKEMEvents_OnFingerEventHandler(OnFingerEvent);
+                    //connector.OnFinger += new _IZKEMEvents_OnFingerEventHandler(OnFingerEvent);
                     _logger.LogInformation("Successfully registered realtime events");
                     return true;
                 }

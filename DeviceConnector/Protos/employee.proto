@@ -27,7 +27,6 @@ message fingerprint {
     int32 employeeId = 1;
     int32 fingerIndex = 2;
     string fingerData = 3;
-    int32 fingerLength = 4;
 }
 
 message UploadEmployeeDataRequest {
@@ -71,10 +70,9 @@ message BatchUploadEmployeeDataResponse {
 }
 
 message GetAllFingerprintsResponse {
-    repeated fingerprint fingerprints = 1;
-    int32 total_count = 2;
-    int32 success_count = 3;
-    string message = 4;
+    int32 total_count = 1;
+    int32 success_count = 2;
+    string message = 3;
 }
 
 message BatchUploadFingerprintsRequest {

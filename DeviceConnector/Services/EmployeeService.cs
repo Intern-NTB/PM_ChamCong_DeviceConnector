@@ -138,5 +138,69 @@ namespace DeviceConnector.Services
             
             return response;
         }
+
+        public override async Task<GetAllFingerprintsResponse> GetAllFingerprints(Empty request, ServerCallContext context)
+        {
+            var response = new GetAllFingerprintsResponse();
+
+            try
+            {
+                var result = await _sdkHelper.GetAllFingerprintsAsync();
+
+                response.TotalCount = result.TotalFound;
+                response.SuccessCount = result.SavedCount;
+                response.Message = result.Success
+                    ? $"Successfully retrieved {result.TotalFound} fingerprints and saved {result.SavedCount}."
+                    : "Failed to retrieve fingerprints from device.";
+
+                return response;
+            }
+            catch (Exception ex)
+            {
+                response.Message = $"Error retrieving fingerprints: {ex.Message}";
+                response.TotalCount = 0;
+                response.SuccessCount = 0;
+                return response;
+            }
+        }
+        public override async Task<BatchUploadFingerprintsResponse> BatchUploadFingerprints(BatchUploadFingerprintsRequest request, ServerCallContext context)
+        {
+            var response = new BatchUploadFingerprintsResponse();
+            
+            if (request.Fingerprints.Count == 0)
+            {
+                response.Message = "No fingerprints to upload.";
+                return response;
+            }
+
+            // Convert request fingerprints to Fingerprint list
+            var fingerprints = request.Fingerprints.Select(fpData => new Fingerprint
+            {
+                employeeId = fpData.EmployeeId,
+                fingerIndex = fpData.FingerIndex,
+                fingerData = fpData.FingerData,
+            }).ToList();
+
+            // Use batch upload
+            bool success = await _sdkHelper.BatchSetFingerprintsAsync(fingerprints);
+
+            // Create results based on batch operation - using UploadResult as defined in proto
+            var results = fingerprints.Select(fp => new UploadResult
+            {
+                EmployeeId = fp.employeeId,
+                Success = success, // All succeed or all fail in batch operation
+                Message = success ? "Success" : "Failed"
+            }).ToList();
+
+            // Add results to response
+            response.Results.AddRange(results);
+            response.SuccessCount = success ? results.Count : 0;
+            response.FailureCount = success ? 0 : results.Count;
+            response.Message = success 
+                ? $"Successfully uploaded {results.Count} fingerprints." 
+                : $"Failed to upload {results.Count} fingerprints.";
+            
+            return response;
+        }
     }
 }
