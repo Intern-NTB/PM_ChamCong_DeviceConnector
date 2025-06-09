@@ -19,11 +19,13 @@ namespace SDK.Helper
         private static string _deviceSerial = string.Empty;
         private static int _deviceNumber = 1;
         private readonly INhanVienRepository _nhanVienRepository;
+        private readonly IChamCongRepository _chamCongRepository;
         private readonly ILogger<SDKHelper> _logger;
 
-        public SDKHelper(INhanVienRepository nhanVienRepository, ILogger<SDKHelper> logger)
+        public SDKHelper(INhanVienRepository nhanVienRepository, IChamCongRepository chamCongRepository, ILogger<SDKHelper> logger)
         {
             _nhanVienRepository = nhanVienRepository;
+            _chamCongRepository = chamCongRepository;
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         }
 
@@ -93,126 +95,214 @@ namespace SDK.Helper
 
         public async Task<bool> EnableDeviceAsync()
         {
+            // --- BƯỚC 0: KIỂM TRA KẾT NỐI ---
+            _logger.LogInformation("Starting device enable process");
+            if (!GetConnectionStatus())
+            {
+                _logger.LogError("Cannot enable device: Not connected to the device.");
+                return false;
+            }
+
+            // Sử dụng lock để đảm bảo không có thao tác nào khác xen vào
+            await _deviceLock.WaitAsync();
             try
             {
-                _logger.LogInformation("Waiting for device lock to enable device");
-                await _deviceLock.WaitAsync();
+                bool finalResult = false;
                 try
                 {
-                    _logger.LogInformation("Enabling device");
-                    return await Task.Run(() => connector.EnableDevice(_deviceNumber, true));
+                    // --- BƯỚC 1: THỰC HIỆN ENABLE DEVICE ---
+                    finalResult = await Task.Run(() => connector.EnableDevice(_deviceNumber, true));
+                    if (finalResult)
+                    {
+                        _logger.LogInformation("Successfully enabled device");
+                    }
+                    else
+                    {
+                        int errorCode = 0;
+                        connector.GetLastError(ref errorCode);
+                        _logger.LogWarning("Failed to enable device. Error: {ErrorCode}", errorCode);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "An exception occurred during device enable process");
+                    return false;
                 }
                 finally
                 {
-                    _deviceLock.Release();
+                    // --- BƯỚC 2: DỌN DẸP ---
+                    // Không cần disable ở đây vì đây là hàm enable
+                    _logger.LogInformation("Device enable operation completed.");
                 }
+
+                return finalResult;
             }
-            catch (Exception ex)
+            finally
             {
-                _logger.LogError(ex, "Error enabling device");
-                return false;
+                _deviceLock.Release();
             }
         }
 
         public async Task<bool> DisableDeviceAsync()
         {
+            // --- BƯỚC 0: KIỂM TRA KẾT NỐI ---
+            _logger.LogInformation("Starting device disable process");
+            if (!GetConnectionStatus())
+            {
+                _logger.LogError("Cannot disable device: Not connected to the device.");
+                return false;
+            }
+
+            // Sử dụng lock để đảm bảo không có thao tác nào khác xen vào
+            await _deviceLock.WaitAsync();
             try
             {
-                _logger.LogInformation("Waiting for device lock to disable device");
-                await _deviceLock.WaitAsync();
+                bool finalResult = false;
                 try
                 {
-                    _logger.LogInformation("Disabling device");
-                    return await Task.Run(() => connector.EnableDevice(_deviceNumber, false));
+                    // --- BƯỚC 1: THỰC HIỆN DISABLE DEVICE ---
+                    finalResult = await Task.Run(() => connector.EnableDevice(_deviceNumber, false));
+                    if (finalResult)
+                    {
+                        _logger.LogInformation("Successfully disabled device");
+                    }
+                    else
+                    {
+                        int errorCode = 0;
+                        connector.GetLastError(ref errorCode);
+                        _logger.LogWarning("Failed to disable device. Error: {ErrorCode}", errorCode);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "An exception occurred during device disable process");
+                    return false;
                 }
                 finally
                 {
-                    _deviceLock.Release();
+                    // --- BƯỚC 2: DỌN DẸP ---
+                    // Không cần disable thêm vì đây là hàm disable
+                    _logger.LogInformation("Device disable operation completed.");
                 }
+
+                return finalResult;
             }
-            catch (Exception ex)
+            finally
             {
-                _logger.LogError(ex, "Error disabling device");
-                return false;
+                _deviceLock.Release();
             }
         }
 
         public async Task DisconnectAsync()
         {
+            // --- BƯỚC 0: KIỂM TRA TRẠNG THÁI HIỆN TẠI ---
+            _logger.LogInformation("Starting disconnection process");
+            if (!_isConnected)
+            {
+                _logger.LogDebug("Disconnect called but already disconnected");
+                return;
+            }
+
+            // Sử dụng lock để đảm bảo không có thao tác nào khác xen vào
+            await _deviceLock.WaitAsync();
             try
             {
-                if (_isConnected)
+                try
                 {
-                    _logger.LogInformation("Disconnecting from device");
-                    
-                    // Disable device before disconnecting
+                    // --- BƯỚC 1: DISABLE DEVICE TRƯỚC KHI NGẮT KẾT NỐI ---
                     await Task.Run(() => connector.EnableDevice(_deviceNumber, false));
                     _logger.LogInformation("Device disabled successfully");
-                    
+
+                    // --- BƯỚC 2: NGẮT KẾT NỐI ---
                     await Task.Run(() => connector.Disconnect());
                     SetConnectionStatus(false);
                     SetDeviceSerial(string.Empty);
                     _logger.LogInformation("Successfully disconnected from device");
                 }
-                else
+                catch (Exception ex)
                 {
-                    _logger.LogDebug("Disconnect called but already disconnected");
+                    _logger.LogError(ex, "An exception occurred during disconnection process");
+                    throw;
+                }
+                finally
+                {
+                    // --- BƯỚC 3: DỌN DẸP ---
+                    // Không cần disable thêm vì đã disable ở bước 1
+                    _logger.LogInformation("Disconnection process completed.");
                 }
             }
-            catch (Exception ex)
+            finally
             {
-                _logger.LogError(ex, "Error disconnecting from device");
-                throw;
+                _deviceLock.Release();
             }
         }
 
         public async Task<bool> ConnectAsync(string ipAddress, int port)
         {
+            // --- BƯỚC 0: KIỂM TRA TRẠNG THÁI HIỆN TẠI ---
+            _logger.LogInformation("Starting connection process to device at {IpAddress}:{Port}", ipAddress, port);
+            if (_isConnected)
+            {
+                _logger.LogWarning("Already connected to a device");
+                return true;
+            }
+
+            // Sử dụng lock để đảm bảo không có thao tác nào khác xen vào
+            await _deviceLock.WaitAsync();
             try
             {
-                _logger.LogInformation("Connecting to device at {IpAddress}:{Port}", ipAddress, port);
-                if (_isConnected)
+                bool finalResult = false;
+                try
                 {
-                    _logger.LogWarning("Already connected to a device");
-                    return true; // Already connected
-                }
-                
-                bool result = await Task.Run(() => connector.Connect_Net(ipAddress, port));
-                if (result)
-                {
+                    // --- BƯỚC 1: THỰC HIỆN KẾT NỐI ---
+                    bool connectResult = await Task.Run(() => connector.Connect_Net(ipAddress, port));
+                    if (!connectResult)
+                    {
+                        _logger.LogWarning("Failed to connect to device at {IpAddress}:{Port}", ipAddress, port);
+                        return false;
+                    }
+
                     SetConnectionStatus(true);
                     _logger.LogInformation("Successfully connected to device at {IpAddress}:{Port}", ipAddress, port);
-                    
-                    // Enable device after successful connection
-                    bool enableResult = await Task.Run(() => connector.EnableDevice(_deviceNumber, true));
-                    if (!enableResult)
+
+                    // --- BƯỚC 2: ENABLE DEVICE SAU KHI KẾT NỐI ---
+                    if (!await Task.Run(() => connector.EnableDevice(_deviceNumber, true)))
                     {
                         _logger.LogWarning("Failed to enable device after connection");
+                        await DisconnectAsync(); // Clean up connection
                         return false;
                     }
                     _logger.LogInformation("Device enabled successfully");
 
-                    bool regEvent = await Task.Run(() => RegisterRealtimeEventAsync());
-
-                    if (!regEvent)
+                    // --- BƯỚC 3: ĐĂNG KÝ SỰ KIỆN REALTIME ---
+                    if (!await Task.Run(() => RegisterRealtimeEventAsync()))
                     {
                         _logger.LogWarning("Failed to register realtime events after connection");
+                        await DisconnectAsync(); // Clean up connection
                         return false;
                     }
                     _logger.LogInformation("Realtime events registered successfully");
 
-                    return true;
+                    finalResult = true;
                 }
-                else
+                catch (Exception ex)
                 {
-                    _logger.LogWarning("Failed to connect to device at {IpAddress}:{Port}", ipAddress, port);
+                    _logger.LogError(ex, "An exception occurred during connection process to {IpAddress}:{Port}", ipAddress, port);
+                    await DisconnectAsync(); // Clean up connection
                     return false;
                 }
+                finally
+                {
+                    // --- BƯỚC 4: DỌN DẸP ---
+                    // Không cần disable ở đây vì đây là hàm connect
+                    _logger.LogInformation("Connection process completed.");
+                }
+
+                return finalResult;
             }
-            catch (Exception ex)
+            finally
             {
-                _logger.LogError(ex, "Error connecting to device at {IpAddress}:{Port}", ipAddress, port);
-                return false;
+                _deviceLock.Release();
             }
         }
         #endregion
@@ -320,25 +410,31 @@ namespace SDK.Helper
 
             public async Task<bool> SetUserAsync(Employee employee)
             {
+                // --- BƯỚC 0: KIỂM TRA KẾT NỐI ---
+                _logger.LogInformation("Starting set user process for employee ID: {EmployeeId}, Name: {Name}", 
+                    employee.employeeId, employee.name);
+                    
+                if (!GetConnectionStatus())
+                {
+                    _logger.LogError("Cannot set user: Not connected to the device.");
+                    return false;
+                }
+
+                // Sử dụng lock để đảm bảo không có thao tác nào khác xen vào
+                await _deviceLock.WaitAsync();
                 try
                 {
-                    _logger.LogInformation("Setting user data for employee ID: {EmployeeId}, Name: {Name}", 
-                        employee.employeeId, employee.name);
-                        
-                    if (!GetConnectionStatus())
-                    {
-                        var ex = new InvalidOperationException("Not connected to the device.");
-                        _logger.LogError(ex, "Failed to set user: not connected");
-                        throw ex;
-                    }
-
-                    // Wait for device lock before proceeding
-                    await _deviceLock.WaitAsync();
+                    bool finalResult = false;
                     try
                     {
-                        // Giả định thiết bị đã được enabled bởi ConnectAsync.
-                        // Không cần enable/disable lại ở đây để tránh xung đột.
+                        // --- BƯỚC 1: ENABLE DEVICE ---
+                        if (!await Task.Run(() => connector.EnableDevice(_deviceNumber, true)))
+                        {
+                            _logger.LogError("Failed to enable device for set user operation. Aborting.");
+                            return false;
+                        }
 
+                        // --- BƯỚC 2: THỰC HIỆN SET USER ---
                         bool result = await Task.Run(() => connector.SSR_SetUserInfo(
                             _deviceNumber, 
                             employee.employeeId.ToString(), 
@@ -350,27 +446,34 @@ namespace SDK.Helper
                         if (result)
                         {
                             _logger.LogInformation("Successfully set user data for employee ID: {EmployeeId}", employee.employeeId);
+                            finalResult = true;
                         }
                         else
                         {
                             int errorCode = 0;
                             connector.GetLastError(ref errorCode);
-                            _logger.LogWarning("Failed to set user data for employee ID: {EmployeeId}, Error: {errorCode}", employee.employeeId, errorCode);
+                            _logger.LogWarning("Failed to set user data for employee ID: {EmployeeId}, Error: {errorCode}", 
+                                employee.employeeId, errorCode);
                         }
-
-                        return result;
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "An exception occurred during set user process for employee ID: {EmployeeId}", 
+                            employee.employeeId);
+                        return false;
                     }
                     finally
                     {
-                        _deviceLock.Release();
+                        // --- BƯỚC 3: DỌN DẸP ---
+                        await Task.Run(() => connector.EnableDevice(_deviceNumber, false));
+                        _logger.LogInformation("Device disabled after set user operation.");
                     }
+
+                    return finalResult;
                 }
-                catch (Exception ex)
+                finally
                 {
-                    int errorCode = 0;
-                    connector.GetLastError(ref errorCode);
-                    _logger.LogError(ex, "Error setting user data for employee ID: {EmployeeId}, error: {errorCode}", employee.employeeId, errorCode);
-                    throw;
+                    _deviceLock.Release();
                 }
             }
 
@@ -460,59 +563,126 @@ namespace SDK.Helper
                     _deviceLock.Release();
                 }
             }
-        #endregion
-            #region User Fingerprint Methods
-            public async Task<Fingerprint> GetFingerprintAsync(string employeeId, int fingerIndex)
+
+            public async Task<bool> DeleteUserAsync(int employeeId)
             {
+                _logger.LogInformation("Starting BULLETPROOF deletion process for user ID: {EmployeeId}", employeeId);
+                if (!GetConnectionStatus())
+                {
+                    _logger.LogError("Cannot delete user: Not connected to the device.");
+                    return false;
+                }
+
+                await _deviceLock.WaitAsync();
                 try
                 {
-                    _logger.LogInformation("Getting fingerprint for employee ID: {EmployeeId}, finger index: {FingerIndex}", 
-                        employeeId, fingerIndex);
-                        
-                    if (!GetConnectionStatus())
+                    if (!await Task.Run(() => connector.EnableDevice(_deviceNumber, true)))
                     {
-                        var ex = new InvalidOperationException("Not connected to the device.");
-                        _logger.LogError(ex, "Failed to get fingerprint: not connected");
-                        throw ex;
+                        _logger.LogError("Failed to enable device for delete operation. Aborting.");
+                        return false;
                     }
 
-                    Fingerprint fingerprint = new Fingerprint();
-                    string fingerData = string.Empty;
-                    int tmpLength = 0;
-
-                    bool readResult = await Task.Run(() => connector.ReadAllTemplate(_deviceNumber));
-                    if (readResult)
+                    bool finalResult = false;
+                    try
                     {
-                        bool getResult = await Task.Run(() => connector.SSR_GetUserTmpStr(_deviceNumber, employeeId, fingerIndex, out fingerData, out tmpLength));
-                        if (getResult)
+                        // BƯỚC 1: XÓA TẤT CẢ CÁC MẪU VÂN TAY GỐC MỘT CÁCH TƯỜNG MINH
+                        // Chúng ta không tin tưởng hàm xóa tổng thể sẽ làm việc này, nên ta tự làm trước.
+                        // Dùng giá trị 11 như tài liệu nói để "xóa tất cả dữ liệu vân tay của người dùng".
+                        _logger.LogInformation("Step 1: Explicitly deleting all fingerprint templates for user {EmployeeId} using index 11.", employeeId);
+                        if (await Task.Run(() => connector.SSR_DeleteEnrollData(_deviceNumber, employeeId.ToString(), 11)))
                         {
-                            fingerprint.employeeId = Int32.Parse(employeeId);
-                            fingerprint.fingerIndex = fingerIndex;
-                            fingerprint.fingerData = fingerData;
-                            fingerprint.fingerLength = tmpLength;
-                            _logger.LogInformation("Successfully retrieved fingerprint for employee ID: {EmployeeId}, finger index: {FingerIndex}, length: {Length}",
-                                employeeId, fingerIndex, tmpLength);
+                            _logger.LogInformation("Successfully deleted all fingerprint templates for user {EmployeeId}.", employeeId);
                         }
                         else
                         {
-                            _logger.LogWarning("Fingerprint not found for employee ID: {EmployeeId}, finger index: {FingerIndex}",
-                                employeeId, fingerIndex);
+                            // Nếu bước này thất bại cũng không sao, bước 2 có thể sẽ dọn dẹp nốt.
+                            int errorCode = 0;
+                            connector.GetLastError(ref errorCode);
+                            _logger.LogWarning("Could not delete all fingerprint templates using index 11 for user {EmployeeId}. Error: {ErrorCode}. Proceeding to next step.", employeeId, errorCode);
+                        }
+
+                        // BƯỚC 2: XÓA TOÀN BỘ BẢN GHI NGƯỜI DÙNG
+                        // Bây giờ ta gọi hàm với tham số 12 để xóa bản ghi người dùng và những thứ khác (thẻ, mật khẩu).
+                        // Kể cả bước 1 ở trên không thành công, bước này có thể sẽ dọn dẹp tất cả.
+                        _logger.LogInformation("Step 2: Deleting main user record and all associated data for user {EmployeeId} using index 12.", employeeId);
+                        if (await Task.Run(() => connector.SSR_DeleteEnrollData(_deviceNumber, employeeId.ToString(), 12)))
+                        {
+                            _logger.LogInformation("Successfully deleted main user record for ID: {EmployeeId}", employeeId);
+                            finalResult = true;
+                        }
+                        else
+                        {
+                            int errorCode = 0;
+                            connector.GetLastError(ref errorCode);
+                            _logger.LogWarning("Failed to delete main user record for user ID: {EmployeeId}. Error: {ErrorCode}", employeeId, errorCode);
+                            finalResult = false;
                         }
                     }
-                    else
+                    finally
                     {
-                        _logger.LogWarning("Failed to read templates from device");
+                        await Task.Run(() => connector.EnableDevice(_deviceNumber, false));
+                        _logger.LogInformation("Device disabled after delete operation.");
                     }
-                    
-                    return fingerprint;
+                    return finalResult;
                 }
-                catch (Exception ex)
+                finally
                 {
-                    _logger.LogError(ex, "Error retrieving fingerprint for employee ID: {EmployeeId}, finger index: {FingerIndex}",
-                        employeeId, fingerIndex);
-                    throw;
+                    _deviceLock.Release();
                 }
             }
+        #endregion
+            #region User Fingerprint Methods
+            public async Task<Fingerprint> GetFingerprintAsync(string employeeId, int fingerIndex)
+                {
+                    try
+                    {
+                        _logger.LogInformation("Getting fingerprint for employee ID: {EmployeeId}, finger index: {FingerIndex}", 
+                            employeeId, fingerIndex);
+                        
+                        if (!GetConnectionStatus())
+                        {
+                            var ex = new InvalidOperationException("Not connected to the device.");
+                            _logger.LogError(ex, "Failed to get fingerprint: not connected");
+                            throw ex;
+                        }
+
+                        Fingerprint fingerprint = new Fingerprint();
+                        string fingerData = string.Empty;
+                        int tmpLength = 0;
+
+                        bool readResult = await Task.Run(() => connector.ReadAllTemplate(_deviceNumber));
+                        if (readResult)
+                        {
+                            bool getResult = await Task.Run(() => connector.SSR_GetUserTmpStr(_deviceNumber, employeeId, fingerIndex, out fingerData, out tmpLength));
+                            if (getResult)
+                            {
+                                fingerprint.employeeId = Int32.Parse(employeeId);
+                                fingerprint.fingerIndex = fingerIndex;
+                                fingerprint.fingerData = fingerData;
+                                fingerprint.fingerLength = tmpLength;
+                                _logger.LogInformation("Successfully retrieved fingerprint for employee ID: {EmployeeId}, finger index: {FingerIndex}, length: {Length}",
+                                    employeeId, fingerIndex, tmpLength);
+                            }
+                            else
+                            {
+                                _logger.LogWarning("Fingerprint not found for employee ID: {EmployeeId}, finger index: {FingerIndex}",
+                                    employeeId, fingerIndex);
+                            }
+                        }
+                        else
+                        {
+                            _logger.LogWarning("Failed to read templates from device");
+                        }
+                    
+                        return fingerprint;
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "Error retrieving fingerprint for employee ID: {EmployeeId}, finger index: {FingerIndex}",
+                            employeeId, fingerIndex);
+                        throw;
+                    }
+                }
             public async Task<(bool Success, int TotalFound, int SavedCount)> GetAllFingerprintsAsync()
             {
                 try
@@ -550,7 +720,7 @@ namespace SDK.Helper
                         }
 
                         // Try to get fingerprints for all possible finger indices (typically 1-10)
-                        for (int fingerIndex = 1; fingerIndex <= 10; fingerIndex++)
+                        for (int fingerIndex = 0; fingerIndex <= 9; fingerIndex++)
                         {
                             string fingerData = string.Empty;
                             int tmpLength = 0;
@@ -613,19 +783,32 @@ namespace SDK.Helper
                 }
             }
             public async Task<bool> SetFingerprintAsync(Fingerprint fingerprint)
+            {
+                // --- BƯỚC 0: KIỂM TRA KẾT NỐI ---
+                _logger.LogInformation("Starting set fingerprint process for employee ID: {EmployeeId}, finger index: {FingerIndex}", 
+                    fingerprint.employeeId, fingerprint.fingerIndex);
+                    
+                if (!GetConnectionStatus())
                 {
+                    _logger.LogError("Cannot set fingerprint: Not connected to the device.");
+                    return false;
+                }
+
+                // Sử dụng lock để đảm bảo không có thao tác nào khác xen vào
+                await _deviceLock.WaitAsync();
+                try
+                {
+                    bool finalResult = false;
                     try
                     {
-                        _logger.LogInformation("Setting fingerprint for employee ID: {EmployeeId}, finger index: {FingerIndex}", 
-                            fingerprint.employeeId, fingerprint.fingerIndex);
-                        
-                        if (!GetConnectionStatus())
+                        // --- BƯỚC 1: ENABLE DEVICE ---
+                        if (!await Task.Run(() => connector.EnableDevice(_deviceNumber, true)))
                         {
-                            var ex = new InvalidOperationException("Not connected to the device.");
-                            _logger.LogError(ex, "Failed to set fingerprint: not connected");
-                            throw ex;
+                            _logger.LogError("Failed to enable device for set fingerprint operation. Aborting.");
+                            return false;
                         }
-                    
+
+                        // --- BƯỚC 2: THỰC HIỆN SET FINGERPRINT ---
                         bool result = await Task.Run(() => connector.SetUserTmpStr(
                             _deviceNumber, 
                             fingerprint.employeeId, 
@@ -636,28 +819,42 @@ namespace SDK.Helper
                         {
                             _logger.LogInformation("Successfully set fingerprint for employee ID: {EmployeeId}, finger index: {FingerIndex}",
                                 fingerprint.employeeId, fingerprint.fingerIndex);
+                            finalResult = true;
                         }
                         else
                         {
-                            _logger.LogWarning("Failed to set fingerprint for employee ID: {EmployeeId}, finger index: {FingerIndex}",
-                                fingerprint.employeeId, fingerprint.fingerIndex);
+                            int errorCode = 0;
+                            connector.GetLastError(ref errorCode);
+                            _logger.LogWarning("Failed to set fingerprint for employee ID: {EmployeeId}, finger index: {FingerIndex}, Error: {errorCode}",
+                                fingerprint.employeeId, fingerprint.fingerIndex, errorCode);
                         }
-                    
-                        return result;
                     }
                     catch (Exception ex)
                     {
-                        _logger.LogError(ex, "Error setting fingerprint for employee ID: {EmployeeId}, finger index: {FingerIndex}",
+                        _logger.LogError(ex, "An exception occurred during set fingerprint process for employee ID: {EmployeeId}, finger index: {FingerIndex}",
                             fingerprint.employeeId, fingerprint.fingerIndex);
-                        throw;
+                        return false;
                     }
+                    finally
+                    {
+                        // --- BƯỚC 3: DỌN DẸP ---
+                        await Task.Run(() => connector.EnableDevice(_deviceNumber, false));
+                        _logger.LogInformation("Device disabled after set fingerprint operation.");
+                    }
+
+                    return finalResult;
                 }
-            public async Task<bool> BatchSetFingerprintsAsync(List<Fingerprint> fingerprints)
+                finally
+                {
+                    _deviceLock.Release();
+                }
+            }
+            public async Task<(bool Success, int SuccessCount, int FailureCount)> BatchSetFingerprintsAsync(List<Fingerprint> fingerprints)
             {
                 if (!GetConnectionStatus() || !fingerprints.Any())
                 {
                     _logger.LogWarning("Cannot perform batch set: Not connected or fingerprint list is empty.");
-                    return false;
+                    return (false, 0, 0);
                 }
 
                 _logger.LogInformation("Starting batch set fingerprint operation for {Count} fingerprints", fingerprints.Count);
@@ -669,23 +866,25 @@ namespace SDK.Helper
                     if (!await Task.Run(() => connector.EnableDevice(_deviceNumber, true)))
                     {
                         _logger.LogError("Failed to enable device for batch operation. Aborting.");
-                        return false;
+                        return (false, 0, 0);
                     }
 
+                    int successCount = 0;
+                    int failureCount = 0;
                     bool batchSuccess = false;
+
                     try
                     {
                         // Begin batch update mode
-                        if (!await Task.Run(() => connector.BeginBatchUpdate(_deviceNumber, 1))) // 2 for fingerprint data
+                        if (!await Task.Run(() => connector.BeginBatchUpdate(_deviceNumber, 2))) // 2 for fingerprint data
                         {
                             int errorCode = 0;
                             connector.GetLastError(ref errorCode);
                             _logger.LogError("Failed to begin batch update mode on the device. Error code: {errorCode}", errorCode);
-                            return false;
+                            return (false, 0, 0);
                         }
 
                         _logger.LogInformation("Device is in batch update mode. Sending fingerprint data...");
-                         connector.ReadAllTemplate(_deviceNumber);
                         foreach (var fingerprint in fingerprints)
                         {
                             // Validate fingerprint data
@@ -693,14 +892,16 @@ namespace SDK.Helper
                             {
                                 _logger.LogWarning("Skipping fingerprint for employee {EmployeeId}, finger index {FingerIndex} - Empty fingerprint data",
                                     fingerprint.employeeId, fingerprint.fingerIndex);
+                                failureCount++;
                                 continue;
                             }
 
                             // Validate finger index (typically 1-10)
-                            if (fingerprint.fingerIndex < 1 || fingerprint.fingerIndex > 10)
+                            if (fingerprint.fingerIndex < 0 || fingerprint.fingerIndex > 9)
                             {
                                 _logger.LogWarning("Skipping fingerprint for employee {EmployeeId}, finger index {FingerIndex} - Invalid finger index",
                                     fingerprint.employeeId, fingerprint.fingerIndex);
+                                failureCount++;
                                 continue;
                             }
 
@@ -724,11 +925,13 @@ namespace SDK.Helper
                                     _logger.LogWarning("Fingerprint data might be invalid or corrupted for employee {EmployeeId}, finger index {FingerIndex}",
                                         fingerprint.employeeId, fingerprint.fingerIndex);
                                 }
+                                failureCount++;
                             }
                             else
                             {
                                 _logger.LogDebug("Successfully added fingerprint for employee {EmployeeId}, finger index {FingerIndex} to batch",
                                     fingerprint.employeeId, fingerprint.fingerIndex);
+                                successCount++;
                             }
                         }
 
@@ -743,6 +946,9 @@ namespace SDK.Helper
                             int errorCode = 0;
                             connector.GetLastError(ref errorCode);
                             _logger.LogError("Batch update commit failed. Error code: {errorCode}", errorCode);
+                            // If batch update fails, consider all fingerprints as failed
+                            failureCount += successCount;
+                            successCount = 0;
                         }
 
                         // Refresh data after successful batch
@@ -759,12 +965,12 @@ namespace SDK.Helper
                         _logger.LogInformation("Device disabled. Batch operation finished.");
                     }
 
-                    return batchSuccess;
+                    return (batchSuccess, successCount, failureCount);
                 }
                 catch (Exception ex)
                 {
                     _logger.LogError(ex, "An exception occurred during the batch set fingerprint operation.");
-                    return false;
+                    return (false, 0, fingerprints.Count);
                 }
                 finally
                 {
@@ -796,6 +1002,7 @@ namespace SDK.Helper
                     //connector.OnEnrollFinger += new _IZKEMEvents_OnEnrollFingerEventHandler(OnEnrollFingerEvent);
                     //connector.OnEnrollFingerEx += new _IZKEMEvents_OnEnrollFingerExEventHandler(OnEnrollFingerEvent);
                     //connector.OnFinger += new _IZKEMEvents_OnFingerEventHandler(OnFingerEvent);
+                    connector.OnAttTransactionEx += new _IZKEMEvents_OnAttTransactionExEventHandler(OnAttTransactionEx);
                     _logger.LogInformation("Successfully registered realtime events");
                     return true;
                 }
@@ -811,6 +1018,43 @@ namespace SDK.Helper
                 throw;
             }
         }
+
+        private async void OnAttTransactionEx(string EnrollNumber, int IsInValid, int AttState, int VerifyMethod, int Year, int Month, int Day, int Hour, int Minute, int Second, int WorkCode)
+        {
+            try
+            {
+                _logger.LogInformation("Attendance transaction received: Employee ID: {EnrollNumber}, IsValid: {IsInValid}, State: {AttState}, Method: {VerifyMethod}, DateTime: {Year}-{Month}-{Day} {Hour}:{Minute}:{Second}, WorkCode: {WorkCode}",
+                    EnrollNumber, IsInValid, AttState, VerifyMethod, Year, Month, Day, Hour, Minute, Second, WorkCode);
+                
+                if (!GetConnectionStatus())
+                {
+                    var ex = new InvalidOperationException("Not connected to the device.");
+                    _logger.LogError(ex, "Failed to process attendance transaction: not connected");
+                    throw ex;
+                }
+
+                var attendanceTime = new DateTime(Year, Month, Day, Hour, Minute, Second);
+
+                if(IsInValid == 0)
+                {
+                    int dbResult = await _chamCongRepository.SetChamCong(EnrollNumber, attendanceTime);
+
+                    if (dbResult > 0 || dbResult == -1)
+                    {
+                        _logger.LogInformation("Attendance recorded successfully for employee ID: {EnrollNumber} at {AttendanceTime}", EnrollNumber, attendanceTime);
+                    }
+                    else
+                    {
+                        _logger.LogWarning("Failed to record attendance for employee ID: {EnrollNumber}, Result: {Result}", EnrollNumber, dbResult);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Unhandled error in OnAttTransactionEx");
+            }
+        }
+
         public async void OnFingerEvent()
         {
             try

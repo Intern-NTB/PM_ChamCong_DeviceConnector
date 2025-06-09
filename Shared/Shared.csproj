@@ -43,6 +43,7 @@
   <ItemGroup>
     <Compile Include="Entity\NhanVien.cs" />
     <Compile Include="Entity\NhanVienVanTay.cs" />
+    <Compile Include="Interface\IChamCongRepository.cs" />
     <Compile Include="Interface\INhanVienRepository.cs" />
     <Compile Include="Model\Employee.cs" />
     <Compile Include="Model\Fingerprint.cs" />

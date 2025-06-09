@@ -98,6 +98,7 @@
   <ItemGroup>
     <Compile Include="Helper\SDKHelper.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
+    <Compile Include="Repository\ChamCongRepository.cs" />
     <Compile Include="Repository\NhanVienRepository.cs" />
   </ItemGroup>
   <ItemGroup>
