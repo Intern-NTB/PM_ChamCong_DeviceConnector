@@ -11,6 +11,7 @@ service EmployeeService {
   rpc GetEmployeeData (GetEmployeeDataRequest) returns (GetEmployeeDataResponse);
   rpc GetAllEmployees (google.protobuf.Empty) returns (GetAllEmployeesResponse);
   rpc BatchUploadEmployeeData (BatchUploadEmployeeDataRequest) returns (BatchUploadEmployeeDataResponse);
+  rpc DeleteEmployeeData(DeleteEmployeeDataRequest) returns (DeleteEmployeeDataResponse);
   rpc GetAllFingerprints (google.protobuf.Empty) returns (GetAllFingerprintsResponse);
   rpc BatchUploadFingerprints (BatchUploadFingerprintsRequest) returns (BatchUploadFingerprintsResponse);
 }
@@ -50,6 +51,15 @@ message GetEmployeeDataResponse {
 message GetAllEmployeesResponse {
 	repeated employee employees = 1;
 	string message = 2; 
+}
+
+message DeleteEmployeeDataRequest {
+	int32 employeeId = 1;
+}
+
+message DeleteEmployeeDataResponse {
+	bool success = 1;
+	string message = 2;
 }
 
 message BatchUploadEmployeeDataRequest {
