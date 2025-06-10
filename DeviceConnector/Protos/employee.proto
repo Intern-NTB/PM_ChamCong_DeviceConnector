@@ -8,12 +8,13 @@ package employee;
 
 service EmployeeService {
   rpc UploadEmployeeData (UploadEmployeeDataRequest) returns (UploadEmployeeDataResponse);
+  rpc UploadFingerprint (UploadFingerprintRequest) returns (UploadFingerprintResponse);
+  rpc BatchUploadEmployeeData (BatchUploadEmployeeDataRequest) returns (BatchUploadEmployeeDataResponse);
+  rpc BatchUploadFingerprints (BatchUploadFingerprintsRequest) returns (BatchUploadFingerprintsResponse);
   rpc GetEmployeeData (GetEmployeeDataRequest) returns (GetEmployeeDataResponse);
   rpc GetAllEmployees (google.protobuf.Empty) returns (GetAllEmployeesResponse);
-  rpc BatchUploadEmployeeData (BatchUploadEmployeeDataRequest) returns (BatchUploadEmployeeDataResponse);
-  rpc DeleteEmployeeData(DeleteEmployeeDataRequest) returns (DeleteEmployeeDataResponse);
   rpc GetAllFingerprints (google.protobuf.Empty) returns (GetAllFingerprintsResponse);
-  rpc BatchUploadFingerprints (BatchUploadFingerprintsRequest) returns (BatchUploadFingerprintsResponse);
+  rpc DeleteEmployeeData(DeleteEmployeeDataRequest) returns (DeleteEmployeeDataResponse);
 }
 
 message employee {
@@ -30,6 +31,12 @@ message fingerprint {
     string fingerData = 3;
 }
 
+message UploadResult {
+  int32 employee_id = 1;
+  bool success = 2;
+  string message = 3;
+}
+
 message UploadEmployeeDataRequest {
 	employee employee = 1;
 }
@@ -37,6 +44,37 @@ message UploadEmployeeDataRequest {
 message UploadEmployeeDataResponse {
 	bool success = 1;
 	string message = 2;
+}
+
+message UploadFingerprintRequest {
+	fingerprint fingerprint = 1;
+}
+
+message UploadFingerprintResponse {
+	bool success = 1;
+	string message = 2;
+}
+
+message BatchUploadEmployeeDataRequest {
+  repeated employee employees = 1;
+}
+
+message BatchUploadEmployeeDataResponse {
+  repeated UploadResult results = 1;
+  int32 success_count = 2;
+  int32 failure_count = 3;
+  string message = 4;
+}
+
+message BatchUploadFingerprintsRequest {
+    repeated fingerprint fingerprints = 1;
+}
+
+message BatchUploadFingerprintsResponse {
+    repeated UploadResult results = 1;
+    int32 success_count = 2;
+    int32 failure_count = 3;
+    string message = 4;
 }
 
 message GetEmployeeDataRequest {
@@ -53,6 +91,12 @@ message GetAllEmployeesResponse {
 	string message = 2; 
 }
 
+message GetAllFingerprintsResponse {
+    int32 total_count = 1;
+    int32 success_count = 2;
+    string message = 3;
+}
+
 message DeleteEmployeeDataRequest {
 	int32 employeeId = 1;
 }
@@ -60,38 +104,4 @@ message DeleteEmployeeDataRequest {
 message DeleteEmployeeDataResponse {
 	bool success = 1;
 	string message = 2;
-}
-
-message BatchUploadEmployeeDataRequest {
-  repeated employee employees = 1;
-}
-
-message UploadResult {
-  int32 employee_id = 1;
-  bool success = 2;
-  string message = 3;
-}
-
-message BatchUploadEmployeeDataResponse {
-  repeated UploadResult results = 1;
-  int32 success_count = 2;
-  int32 failure_count = 3;
-  string message = 4;
-}
-
-message GetAllFingerprintsResponse {
-    int32 total_count = 1;
-    int32 success_count = 2;
-    string message = 3;
-}
-
-message BatchUploadFingerprintsRequest {
-    repeated fingerprint fingerprints = 1;
-}
-
-message BatchUploadFingerprintsResponse {
-    repeated UploadResult results = 1;
-    int32 success_count = 2;
-    int32 failure_count = 3;
-    string message = 4;
 }

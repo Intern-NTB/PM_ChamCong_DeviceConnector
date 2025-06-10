@@ -18,6 +18,80 @@ namespace DeviceConnector.Services
             _sdkHelper = sdkHelper;
         }
 
+        #region Upload Employee Data
+        public override async Task<UploadEmployeeDataResponse> UploadEmployeeData(UploadEmployeeDataRequest request, ServerCallContext context)
+        {
+            if (request.Employee == null)
+            {
+                return new UploadEmployeeDataResponse
+                {
+                    Success = false,
+                    Message = "No employee data provided."
+                };
+            }
+
+            // Create Employee object from request
+            var employee = new Employee
+            {
+                employeeId = request.Employee.EmployeeId,
+                name = request.Employee.Name,
+                password = request.Employee.Password,
+                privilege = request.Employee.Privilege,
+                enabled = request.Employee.Enable
+            };
+
+            bool success = await _sdkHelper.SetUserAsync(employee);
+
+            return new UploadEmployeeDataResponse
+            {
+                Success = success,
+                Message = success ? "Employee data uploaded successfully." : "Failed to upload employee data."
+            };
+        }
+        public override async Task<BatchUploadEmployeeDataResponse> BatchUploadEmployeeData(BatchUploadEmployeeDataRequest request, ServerCallContext context)
+        {
+            var response = new BatchUploadEmployeeDataResponse();
+
+            if (request.Employees.Count == 0)
+            {
+                response.Message = "No employees to upload.";
+                return response;
+            }
+
+            // Convert request employees to Employee list
+            var employees = request.Employees.Select(empData => new Employee
+            {
+                employeeId = empData.EmployeeId,
+                name = empData.Name,
+                password = empData.Password,
+                privilege = empData.Privilege,
+                enabled = empData.Enable
+            }).ToList();
+
+            // Use batch upload
+            bool success = await _sdkHelper.BatchSetUserAsync(employees);
+
+            // Create results based on batch operation
+            var results = employees.Select(emp => new UploadResult
+            {
+                EmployeeId = emp.employeeId,
+                Success = success, // All succeed or all fail in batch operation
+                Message = success ? "Success" : "Failed"
+            }).ToList();
+
+            // Add results to response
+            response.Results.AddRange(results);
+            response.SuccessCount = success ? results.Count : 0;
+            response.FailureCount = success ? 0 : results.Count;
+            response.Message = success
+                ? $"Successfully uploaded {results.Count} employees."
+                : $"Failed to upload {results.Count} employees.";
+
+            return response;
+        }
+        #endregion
+
+        #region Get Employee Data
         public override async Task<GetAllEmployeesResponse> GetAllEmployees(Empty request, ServerCallContext context)
         {
             var response = new GetAllEmployeesResponse();
@@ -65,119 +139,37 @@ namespace DeviceConnector.Services
 
             return response;
         }
-        public override async Task<UploadEmployeeDataResponse> UploadEmployeeData(UploadEmployeeDataRequest request, ServerCallContext context)
+        #endregion
+
+        #region Upload Fingerprint Data
+        public override async Task<UploadFingerprintResponse> UploadFingerprint(UploadFingerprintRequest request, ServerCallContext context)
         {
-            if (request.Employee == null)
+            if (request.Fingerprint == null)
             {
-                return new UploadEmployeeDataResponse
+                return new UploadFingerprintResponse
                 {
                     Success = false,
-                    Message = "No employee data provided."
+                    Message = "No fingerprint data provided."
                 };
             }
-
-            // Create Employee object from request
-            var employee = new Employee
+            // Create Fingerprint object from request
+            var fingerprint = new Fingerprint
             {
-                employeeId = request.Employee.EmployeeId,
-                name = request.Employee.Name,
-                password = request.Employee.Password,
-                privilege = request.Employee.Privilege,
-                enabled = request.Employee.Enable
+                employeeId = request.Fingerprint.EmployeeId,
+                fingerIndex = request.Fingerprint.FingerIndex,
+                fingerData = request.Fingerprint.FingerData,
             };
-
-            bool success = await _sdkHelper.SetUserAsync(employee);
-            
-            return new UploadEmployeeDataResponse
+            bool success = await _sdkHelper.SetFingerprintAsync(fingerprint);
+            return new UploadFingerprintResponse
             {
                 Success = success,
-                Message = success ? "Employee data uploaded successfully." : "Failed to upload employee data."
+                Message = success ? "Fingerprint uploaded successfully." : "Failed to upload fingerprint."
             };
-        }
-        public override async Task<BatchUploadEmployeeDataResponse> BatchUploadEmployeeData(BatchUploadEmployeeDataRequest request, ServerCallContext context)
-        {
-            var response = new BatchUploadEmployeeDataResponse();
-            
-            if (request.Employees.Count == 0)
-            {
-                response.Message = "No employees to upload.";
-                return response;
-            }
-
-            // Convert request employees to Employee list
-            var employees = request.Employees.Select(empData => new Employee
-            {
-                employeeId = empData.EmployeeId,
-                name = empData.Name,
-                password = empData.Password,
-                privilege = empData.Privilege,
-                enabled = empData.Enable
-            }).ToList();
-
-            // Use batch upload
-            bool success = await _sdkHelper.BatchSetUserAsync(employees);
-
-            // Create results based on batch operation
-            var results = employees.Select(emp => new UploadResult
-            {
-                EmployeeId = emp.employeeId,
-                Success = success, // All succeed or all fail in batch operation
-                Message = success ? "Success" : "Failed"
-            }).ToList();
-
-            // Add results to response
-            response.Results.AddRange(results);
-            response.SuccessCount = success ? results.Count : 0;
-            response.FailureCount = success ? 0 : results.Count;
-            response.Message = success 
-                ? $"Successfully uploaded {results.Count} employees." 
-                : $"Failed to upload {results.Count} employees.";
-            
-            return response;
-        }
-        public override async Task<DeleteEmployeeDataResponse> DeleteEmployeeData(DeleteEmployeeDataRequest request, ServerCallContext context)
-        {
-            var response = new DeleteEmployeeDataResponse();
-            if (request.EmployeeId <= 0)
-            {
-                response.Message = "Invalid Employee ID.";
-                return response;
-            }
-            bool success = await _sdkHelper.DeleteUserAsync(request.EmployeeId);
-            response.Success = success;
-            response.Message = success 
-                ? "Employee deleted successfully." 
-                : "Failed to delete employee.";
-            return response;
-        }
-        public override async Task<GetAllFingerprintsResponse> GetAllFingerprints(Empty request, ServerCallContext context)
-        {
-            var response = new GetAllFingerprintsResponse();
-
-            try
-            {
-                var result = await _sdkHelper.GetAllFingerprintsAsync();
-
-                response.TotalCount = result.TotalFound;
-                response.SuccessCount = result.SavedCount;
-                response.Message = result.Success
-                    ? $"Successfully retrieved {result.TotalFound} fingerprints and saved {result.SavedCount}."
-                    : "Failed to retrieve fingerprints from device.";
-
-                return response;
-            }
-            catch (Exception ex)
-            {
-                response.Message = $"Error retrieving fingerprints: {ex.Message}";
-                response.TotalCount = 0;
-                response.SuccessCount = 0;
-                return response;
-            }
         }
         public override async Task<BatchUploadFingerprintsResponse> BatchUploadFingerprints(BatchUploadFingerprintsRequest request, ServerCallContext context)
         {
             var response = new BatchUploadFingerprintsResponse();
-            
+
             if (request.Fingerprints.Count == 0)
             {
                 response.Message = "No fingerprints to upload.";
@@ -207,10 +199,53 @@ namespace DeviceConnector.Services
             response.Results.AddRange(results);
             response.SuccessCount = successCount;
             response.FailureCount = failureCount;
-            response.Message = success 
-                ? $"Successfully uploaded {successCount} fingerprints. Failed to upload {failureCount} fingerprints." 
+            response.Message = success
+                ? $"Successfully uploaded {successCount} fingerprints. Failed to upload {failureCount} fingerprints."
                 : $"Failed to upload fingerprints. {failureCount} fingerprints failed.";
-            
+
+            return response;
+        }
+        #endregion
+
+        #region Get Fingerprint Data
+        public override async Task<GetAllFingerprintsResponse> GetAllFingerprints(Empty request, ServerCallContext context)
+        {
+            var response = new GetAllFingerprintsResponse();
+
+            try
+            {
+                var result = await _sdkHelper.GetAllFingerprintsAsync();
+
+                response.TotalCount = result.TotalFound;
+                response.SuccessCount = result.SavedCount;
+                response.Message = result.Success
+                    ? $"Successfully retrieved {result.TotalFound} fingerprints and saved {result.SavedCount}."
+                    : "Failed to retrieve fingerprints from device.";
+
+                return response;
+            }
+            catch (Exception ex)
+            {
+                response.Message = $"Error retrieving fingerprints: {ex.Message}";
+                response.TotalCount = 0;
+                response.SuccessCount = 0;
+                return response;
+            }
+        }
+        #endregion
+        public override async Task<DeleteEmployeeDataResponse> DeleteEmployeeData(DeleteEmployeeDataRequest request, ServerCallContext context)
+        {
+            var response = new DeleteEmployeeDataResponse();
+            if (request.EmployeeId <= 0)
+            {
+                response.Message = "Invalid Employee ID.";
+                return response;
+            }
+            bool success = await _sdkHelper.DeleteUserAsync(request.EmployeeId);
+            response.Success = success;
+            response.Message = success 
+                ? "Employee deleted successfully." 
+                : "Failed to delete employee.";
             return response;
         }
     }
