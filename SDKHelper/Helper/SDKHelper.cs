@@ -563,7 +563,6 @@ namespace SDK.Helper
                     _deviceLock.Release();
                 }
             }
-
             public async Task<bool> DeleteUserAsync(int employeeId)
             {
                 _logger.LogInformation("Starting BULLETPROOF deletion process for user ID: {EmployeeId}", employeeId);
@@ -585,26 +584,7 @@ namespace SDK.Helper
                     bool finalResult = false;
                     try
                     {
-                        // BƯỚC 1: XÓA TẤT CẢ CÁC MẪU VÂN TAY GỐC MỘT CÁCH TƯỜNG MINH
-                        // Chúng ta không tin tưởng hàm xóa tổng thể sẽ làm việc này, nên ta tự làm trước.
-                        // Dùng giá trị 11 như tài liệu nói để "xóa tất cả dữ liệu vân tay của người dùng".
-                        _logger.LogInformation("Step 1: Explicitly deleting all fingerprint templates for user {EmployeeId} using index 11.", employeeId);
-                        if (await Task.Run(() => connector.SSR_DeleteEnrollData(_deviceNumber, employeeId.ToString(), 11)))
-                        {
-                            _logger.LogInformation("Successfully deleted all fingerprint templates for user {EmployeeId}.", employeeId);
-                        }
-                        else
-                        {
-                            // Nếu bước này thất bại cũng không sao, bước 2 có thể sẽ dọn dẹp nốt.
-                            int errorCode = 0;
-                            connector.GetLastError(ref errorCode);
-                            _logger.LogWarning("Could not delete all fingerprint templates using index 11 for user {EmployeeId}. Error: {ErrorCode}. Proceeding to next step.", employeeId, errorCode);
-                        }
-
-                        // BƯỚC 2: XÓA TOÀN BỘ BẢN GHI NGƯỜI DÙNG
-                        // Bây giờ ta gọi hàm với tham số 12 để xóa bản ghi người dùng và những thứ khác (thẻ, mật khẩu).
-                        // Kể cả bước 1 ở trên không thành công, bước này có thể sẽ dọn dẹp tất cả.
-                        _logger.LogInformation("Step 2: Deleting main user record and all associated data for user {EmployeeId} using index 12.", employeeId);
+                        _logger.LogInformation("Deleting main user record and all associated data for user {EmployeeId} using index 12.", employeeId);
                         if (await Task.Run(() => connector.SSR_DeleteEnrollData(_deviceNumber, employeeId.ToString(), 12)))
                         {
                             _logger.LogInformation("Successfully deleted main user record for ID: {EmployeeId}", employeeId);
@@ -906,10 +886,11 @@ namespace SDK.Helper
                             }
 
                             // Try to add fingerprint to batch
-                            bool addResult = connector.SSR_SetUserTmpStr(
+                            bool addResult = connector.SetUserTmpExStr(
                                 _deviceNumber,
                                 fingerprint.employeeId.ToString(),
                                 fingerprint.fingerIndex,
+                                1,
                                 fingerprint.fingerData);
 
                             if (!addResult)
@@ -978,8 +959,46 @@ namespace SDK.Helper
                 }
             }
 
-            
+
         #endregion
+        #endregion
+
+        #region Admin Methods
+
+        public async Task<bool> ClearAdminAsync()
+        {
+            try
+            {
+                if (!GetConnectionStatus())
+                {
+                    var ex = new InvalidOperationException("Not connected to the device.");
+                    _logger.LogError(ex, "Failed to clear admin: not connected");
+                    throw ex;
+                }
+
+                _logger.LogInformation("Clearing admin data from device {DeviceNumber}", _deviceNumber);
+
+                bool result = await Task.Run(() => connector.ClearAdministrators(_deviceNumber));
+
+                if (result)
+                {
+                    _logger.LogInformation("Successfully cleared admin data from device {DeviceNumber}", _deviceNumber);
+                    return true;
+                }
+                else
+                {
+                    int errorCode = 0;
+                    connector.GetLastError(ref errorCode);
+                    _logger.LogError("Failed to clear admin data from device {DeviceNumber}, Error: {errorCode}", _deviceNumber, errorCode);
+                    return false;
+                }
+            }
+            catch (Exception error)
+            {
+                throw error;
+            }
+        }
+
         #endregion
 
         #region Real-time Data Methods

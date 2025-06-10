@@ -10,6 +10,7 @@ service DeviceConnector{
 	rpc GetDeviceSerial (GetDeviceSerialRequest) returns (GetDeviceSerialDeviceResponse);
 	rpc Connect (ConnectRequest) returns (ConnectResponse);
 	rpc Disconnect (google.protobuf.Empty) returns (DisconnectResponse);
+	rpc ClearAdmin (google.protobuf.Empty) returns (ClearAdminResponse);
 }
 
 message GetDeviceSerialRequest {
@@ -31,6 +32,11 @@ message ConnectResponse {
 }
 
 message DisconnectResponse {
+	bool success = 1;
+	string message = 2;
+}
+
+message ClearAdminResponse {
 	bool success = 1;
 	string message = 2;
 }

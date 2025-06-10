@@ -68,5 +68,26 @@ namespace DeviceConnector.Services
                 return new GetDeviceSerialDeviceResponse { SerialNumber = "Error retrieving serial number" };
             }
         }
+    
+        public override async Task<ClearAdminResponse> ClearAdmin(Empty request, ServerCallContext context)
+        {
+            Debug.WriteLine("Received request to clear admin data.");
+            if (!_sdkHelper.GetConnectionStatus())
+            {
+                Debug.WriteLine("Not connected to any device.");
+                return new ClearAdminResponse { Success = false, Message = "Not connected to any device." };
+            }
+            bool result = await _sdkHelper.ClearAdminAsync();
+            if (result)
+            {
+                Debug.WriteLine("Successfully cleared admin data.");
+                return new ClearAdminResponse { Success = true };
+            }
+            else
+            {
+                Debug.WriteLine("Failed to clear admin data.");
+                return new ClearAdminResponse { Success = false, Message = "Failed to clear admin data." };
+            }
+        }
     }
 }
