@@ -35,7 +35,7 @@ namespace SDK.Repository
             catch (Exception ex)
             {
                 // Consider logging the exception
-                throw;
+                throw ex;
             }
         }
 
@@ -49,7 +49,7 @@ namespace SDK.Repository
             try
             {
                 return await _connection.ExecuteAsync(
-                "sp_create_vantay",
+                "sp_upsert_vantay",
                 new
                 {
                     MaNhanVien = vanTay.MaNhanVien,
@@ -60,7 +60,78 @@ namespace SDK.Repository
             }
             catch (Exception ex)
             {
-                throw;
+                throw ex;
+            }
+        }
+
+        public async Task<IEnumerable<NhanVienVanTay>> GetAllNhanVienVanTay()
+        {
+            if (_connection.State != ConnectionState.Open)
+            {
+                _connection.Open();
+            }
+
+            try
+            {
+                var vanTays = await _connection.QueryAsync<NhanVienVanTay>(
+                    "sp_read_all_vantay",
+                    commandType: CommandType.StoredProcedure);
+
+                return vanTays.ToList();
+            }
+            catch (Exception ex)
+            {
+                throw ex;
+            }
+        }
+
+        public async Task<int> BatchSetNhanVienVanTay(IEnumerable<NhanVienVanTay> vanTays)
+        {
+            if (_connection.State != ConnectionState.Open)
+            {
+                _connection.Open();
+            }
+
+            try
+            {
+                using (var transaction = _connection.BeginTransaction())
+                {
+                    try
+                    {
+                        int processedCount = 0;
+                        foreach (var vanTay in vanTays)
+                        {
+                            var result = await _connection.ExecuteAsync(
+                                "sp_upsert_vantay",
+                                new
+                                {
+                                    MaNhanVien = vanTay.MaNhanVien,
+                                    ViTriNgonTay = vanTay.ViTriNgonTay,
+                                    DuLieuVanTay = vanTay.DuLieuVanTay
+                                },
+                                transaction,
+                                commandType: CommandType.StoredProcedure);
+
+                            // Dapper returns -1 for successful execution
+                            if (result == -1)
+                            {
+                                processedCount++;
+                            }
+                        }
+
+                        transaction.Commit();
+                        return processedCount;
+                    }
+                    catch
+                    {
+                        transaction.Rollback();
+                        throw;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                throw ex;
             }
         }
     }

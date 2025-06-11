@@ -8,5 +8,7 @@ namespace Shared.Interface
     {
         Task<IEnumerable<NhanVien>> GetAllNhanVienAsync();
         Task<int> SetNhanVienVanTay(NhanVienVanTay vanTay);
+        Task<IEnumerable<NhanVienVanTay>> GetAllNhanVienVanTay();
+        Task<int> BatchSetNhanVienVanTay(IEnumerable<NhanVienVanTay> vanTays);
     }
 }
