@@ -423,52 +423,50 @@ namespace SDK.Helper
                         throw new InvalidOperationException("Not connected to the device.");
                     }
 
-                    return await ExecuteWithLockAsync<List<Employee>>(async () =>
+                    
+                    var employees = new List<Employee>();
+                    bool readResult = await ReadAllWithTimeoutAsync(
+                        () => _deviceState.Connector.ReadAllUserID(_deviceState.DeviceNumber),
+                        "ReadAllUserID");
+
+                    if (readResult)
                     {
-                        var employees = new List<Employee>();
-                        bool readResult = await ReadAllWithTimeoutAsync(
-                            () => _deviceState.Connector.ReadAllUserID(_deviceState.DeviceNumber),
-                            "ReadAllUserID");
+                        string dwEnrollNumber = "";
+                        string Name = string.Empty;
+                        string Password = string.Empty;
+                        int Privilege = 0;
+                        bool Enabled = false;
 
-                        if (readResult)
+                        bool hasUser = await Task.Run(() => _deviceState.Connector.SSR_GetAllUserInfo(
+                            _deviceState.DeviceNumber, 
+                            out dwEnrollNumber, 
+                            out Name, 
+                            out Password, 
+                            out Privilege, 
+                            out Enabled));
+
+                        while (hasUser)
                         {
-                            string dwEnrollNumber = "";
-                            string Name = string.Empty;
-                            string Password = string.Empty;
-                            int Privilege = 0;
-                            bool Enabled = false;
+                            employees.Add(new Employee
+                            {
+                                employeeId = Int32.Parse(dwEnrollNumber),
+                                name = Name,
+                                password = Password,
+                                privilege = Privilege,
+                                enabled = Enabled
+                            });
 
-                            bool hasUser = await Task.Run(() => _deviceState.Connector.SSR_GetAllUserInfo(
+                            hasUser = await Task.Run(() => _deviceState.Connector.SSR_GetAllUserInfo(
                                 _deviceState.DeviceNumber, 
                                 out dwEnrollNumber, 
                                 out Name, 
                                 out Password, 
                                 out Privilege, 
                                 out Enabled));
-
-                            while (hasUser)
-                            {
-                                employees.Add(new Employee
-                                {
-                                    employeeId = Int32.Parse(dwEnrollNumber),
-                                    name = Name,
-                                    password = Password,
-                                    privilege = Privilege,
-                                    enabled = Enabled
-                                });
-
-                                hasUser = await Task.Run(() => _deviceState.Connector.SSR_GetAllUserInfo(
-                                    _deviceState.DeviceNumber, 
-                                    out dwEnrollNumber, 
-                                    out Name, 
-                                    out Password, 
-                                    out Privilege, 
-                                    out Enabled));
-                            }
                         }
-                        
-                        return employees;
-                    });
+                    }
+                    
+                    return employees;
                 }
                 catch (Exception ex)
                 {
@@ -703,37 +701,38 @@ namespace SDK.Helper
                         throw new InvalidOperationException("Not connected to the device.");
                     }
 
-                    var employees = await GetAllEmployeeAsync();
-                    if (employees == null || !employees.Any())
+                    return await ExecuteWithLockAsync<(bool Success, int TotalFound, int SavedCount)>(async () =>
                     {
-                        _logger.LogWarning("No employees found on device");
-                        return (false, 0, 0);
-                    }
-                    _logger.LogInformation("Found {Count} employees on device", employees.Count);
-
-                    var existingFingerprints = await _nhanVienRepository.GetAllNhanVienVanTay();
-                    var existingFingerprintDict = existingFingerprints
-                        .ToDictionary(
-                            f => (f.MaNhanVien, f.ViTriNgonTay),
-                            f => f.DuLieuVanTay
-                        );
-                    _logger.LogInformation("Retrieved {Count} existing fingerprints from database", existingFingerprintDict.Count);
-
-                    int totalFingerprints = 0;
-                    int savedFingerprints = 0;
-                    var newFingerprints = new List<NhanVienVanTay>();
-                    const int BATCH_SIZE = 10;
-
-                    foreach (var employee in employees)
-                    {
-                        _logger.LogInformation("Processing fingerprints for employee {EmployeeId}", employee.employeeId);
-                        await ExecuteWithLockAsync<bool>(async () =>
+                        var employees = await GetAllEmployeeAsync();
+                        if (employees == null || !employees.Any())
                         {
+                            _logger.LogWarning("No employees found on device");
+                            return (false, 0, 0);
+                        }
+                        _logger.LogInformation("Found {Count} employees on device", employees.Count);
+
+                        var existingFingerprints = await _nhanVienRepository.GetAllNhanVienVanTay();
+                        var existingFingerprintDict = existingFingerprints
+                            .ToDictionary(
+                                f => (f.MaNhanVien, f.ViTriNgonTay),
+                                f => f.DuLieuVanTay
+                            );
+                        _logger.LogInformation("Retrieved {Count} existing fingerprints from database", existingFingerprintDict.Count);
+
+                        int totalFingerprints = 0;
+                        int savedFingerprints = 0;
+                        var newFingerprints = new List<NhanVienVanTay>();
+                        const int BATCH_SIZE = 10;
+
+                        foreach (var employee in employees)
+                        {
+                            _logger.LogInformation("Processing fingerprints for employee {EmployeeId}", employee.employeeId);
+                            
                             bool readResult = await ReadAllWithTimeoutAsync(
                                 () => _deviceState.Connector.ReadAllTemplate(_deviceState.DeviceNumber),
                                 "ReadAllTemplate");
 
-                            if (!readResult) return false;
+                            if (!readResult) continue;
 
                             for (int fingerIndex = 0; fingerIndex <= 9; fingerIndex++)
                             {
@@ -781,28 +780,27 @@ namespace SDK.Helper
                                     }
                                 }
                             }
-                            return true;
-                        });
-                    }
-
-                    if (newFingerprints.Any())
-                    {
-                        try
-                        {
-                            _logger.LogInformation("Saving remaining {Count} fingerprints", newFingerprints.Count);
-                            int processedCount = await _nhanVienRepository.BatchSetNhanVienVanTay(newFingerprints);
-                            savedFingerprints += processedCount;
-                            _logger.LogInformation("Successfully saved {Count} remaining fingerprints", processedCount);
                         }
-                        catch (Exception ex)
-                        {
-                            _logger.LogError(ex, "Error saving remaining fingerprints to database");
-                        }
-                    }
 
-                    _logger.LogInformation("Fingerprint sync completed. Total found: {Total}, Saved: {Saved}", 
-                        totalFingerprints, savedFingerprints);
-                    return (totalFingerprints > 0, totalFingerprints, savedFingerprints);
+                        if (newFingerprints.Any())
+                        {
+                            try
+                            {
+                                _logger.LogInformation("Saving remaining {Count} fingerprints", newFingerprints.Count);
+                                int processedCount = await _nhanVienRepository.BatchSetNhanVienVanTay(newFingerprints);
+                                savedFingerprints += processedCount;
+                                _logger.LogInformation("Successfully saved {Count} remaining fingerprints", processedCount);
+                            }
+                            catch (Exception ex)
+                            {
+                                _logger.LogError(ex, "Error saving remaining fingerprints to database");
+                            }
+                        }
+
+                        _logger.LogInformation("Fingerprint sync completed. Total found: {Total}, Saved: {Saved}", 
+                            totalFingerprints, savedFingerprints);
+                        return (totalFingerprints > 0, totalFingerprints, savedFingerprints);
+                    });
                 }
                 catch (Exception ex)
                 {
@@ -922,6 +920,176 @@ namespace SDK.Helper
                     }
                 });
             }
+            public async Task<bool> DeleteFingerprintAsync(int employeeId, int fingerIndex)
+            {
+                return await ExecuteWithLockAsync<bool>(async () =>
+                {
+                    if (!_deviceState.IsConnected)
+                    {
+                        throw new InvalidOperationException("Not connected to the device.");
+                    }
+
+                    if (fingerIndex < 0 || fingerIndex > 9)
+                    {
+                        _logger.LogWarning("Invalid finger index {FingerIndex} for employee {EmployeeId}", 
+                            fingerIndex, employeeId);
+                        return false;
+                    }
+
+                    if (!await Task.Run(() => _deviceState.Connector.EnableDevice(_deviceState.DeviceNumber, true)))
+                    {
+                        return false;
+                    }
+
+                    try
+                    {
+                        _logger.LogInformation("Deleting fingerprint for employee {EmployeeId}, finger {FingerIndex}", 
+                            employeeId, fingerIndex);
+
+                        bool result = await Task.Run(() => _deviceState.Connector.SSR_DelUserTmp(
+                            _deviceState.DeviceNumber,
+                            employeeId.ToString(),
+                            fingerIndex));
+
+                        if (!result)
+                        {
+                            int errorCode = 0;
+                            _deviceState.Connector.GetLastError(ref errorCode);
+                            _logger.LogWarning("Failed to delete fingerprint. Error: {ErrorCode}", errorCode);
+                        }
+                        else
+                        {
+                            _logger.LogInformation("Successfully deleted fingerprint for employee {EmployeeId}, finger {FingerIndex}", 
+                                employeeId, fingerIndex);
+
+                            // Xóa vân tay khỏi database
+                            try
+                            {
+                                await _nhanVienRepository.DeleteNhanVienVanTay(employeeId, fingerIndex);
+                                _logger.LogInformation("Successfully deleted fingerprint from database");
+                            }
+                            catch (Exception ex)
+                            {
+                                _logger.LogError(ex, "Error deleting fingerprint from database: {Message}", ex.Message);
+                            }
+                        }
+
+                        return result;
+                    }
+                    finally
+                    {
+                        await Task.Run(() => _deviceState.Connector.EnableDevice(_deviceState.DeviceNumber, false));
+                    }
+                });
+            }
+            
+            public async Task<(bool Success, int FingerprintsFound, int FingerprintsSaved)> GetAllFingerprintsForEmployeeAsync(int employeeId)
+            {
+                return await ExecuteWithLockAsync<(bool Success, int FingerprintsFound, int FingerprintsSaved)>(async () =>
+                {
+                    _logger.LogInformation("Retrieving all fingerprints for employee ID: {EmployeeId}", employeeId);
+                    
+                    if (!_deviceState.IsConnected)
+                    {
+                        _logger.LogError("Cannot retrieve fingerprints: device not connected");
+                        throw new InvalidOperationException("Not connected to the device.");
+                    }
+                    
+                    // Read all fingerprint templates from the device
+                    bool readResult = await ReadAllWithTimeoutAsync(
+                        () => _deviceState.Connector.ReadAllTemplate(_deviceState.DeviceNumber),
+                        "ReadAllTemplate");
+                        
+                    if (!readResult)
+                    {
+                        _logger.LogWarning("Failed to read templates from device for employee {EmployeeId}", employeeId);
+                        return (false, 0, 0);
+                    }
+                    
+                    // Get existing fingerprints from the database for this employee
+                    var existingFingerprints = await _nhanVienRepository.GetNhanVienVanTay(employeeId);
+                    var existingFingerprintDict = existingFingerprints?
+                        .ToDictionary(f => f.ViTriNgonTay, f => f.DuLieuVanTay) ?? new Dictionary<int, string>();
+                        
+                    _logger.LogInformation("Found {Count} existing fingerprints in database for employee {EmployeeId}", 
+                        existingFingerprintDict.Count, employeeId);
+                    
+                    int fingerprintsFound = 0;
+                    int fingerprintsSaved = 0;
+                    var newFingerprints = new List<NhanVienVanTay>();
+                    
+                    // Check each possible finger position (0-9)
+                    for (int fingerIndex = 0; fingerIndex <= 9; fingerIndex++)
+                    {
+                        string fingerData = string.Empty;
+                        int tmpLength = 0;
+                        
+                        try
+                        {
+                            bool getResult = await Task.Run(() => _deviceState.Connector.SSR_GetUserTmpStr(
+                                _deviceState.DeviceNumber,
+                                employeeId.ToString(),
+                                fingerIndex,
+                                out fingerData,
+                                out tmpLength));
+                                
+                            if (getResult && !string.IsNullOrEmpty(fingerData))
+                            {
+                                fingerprintsFound++;
+                                _logger.LogInformation("Found fingerprint for employee {EmployeeId}, finger index {FingerIndex}", 
+                                    employeeId, fingerIndex);
+                                
+                                // Check if this fingerprint needs to be saved (new or updated)
+                                if (!existingFingerprintDict.TryGetValue(fingerIndex, out var existingData) || 
+                                    existingData != fingerData)
+                                {
+                                    var vanTay = new NhanVienVanTay
+                                    {
+                                        MaNhanVien = employeeId,
+                                        ViTriNgonTay = fingerIndex,
+                                        DuLieuVanTay = fingerData
+                                    };
+                                    
+                                    newFingerprints.Add(vanTay);
+                                }
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogError(ex, "Error retrieving fingerprint for employee {EmployeeId}, finger {FingerIndex}", 
+                                employeeId, fingerIndex);
+                        }
+                    }
+                    
+                    // Save any new or updated fingerprints to the database
+                    if (newFingerprints.Any())
+                    {
+                        try
+                        {
+                            _logger.LogInformation("Saving {Count} new/updated fingerprints for employee {EmployeeId}", 
+                                newFingerprints.Count, employeeId);
+                                
+                            foreach (var fingerprint in newFingerprints)
+                            {
+                                int result = await _nhanVienRepository.SetNhanVienVanTay(fingerprint);
+                                if (result == - 1)
+                                {
+                                    fingerprintsSaved++;
+                                }
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogError(ex, "Error saving fingerprints to database for employee {EmployeeId}", employeeId);
+                        }
+                    }
+                    
+                    _logger.LogInformation("Fingerprint sync completed for employee {EmployeeId}. Found: {Found}, Saved: {Saved}", 
+                        employeeId, fingerprintsFound, fingerprintsSaved);
+                        
+                    return (fingerprintsFound > 0, fingerprintsFound, fingerprintsSaved);
+                });
+            }
             #endregion
         #endregion
 
@@ -950,7 +1118,7 @@ namespace SDK.Helper
         #endregion
 
         #region Real-time Data Methods
-        public async Task<bool> RegisterRealtimeEventAsync()
+        /*public async Task<bool> RegisterRealtimeEventAsync()
         {
             return await ExecuteWithLockAsync<bool>(async () =>
             {
@@ -967,9 +1135,9 @@ namespace SDK.Helper
                 }
                 return result;
             });
-        }
+        }*/
 
-        public async Task<bool> UnregisterRealtimeEventAsync()
+       /* public async Task<bool> UnregisterRealtimeEventAsync()
         {
             return await ExecuteWithLockAsync<bool>(async () =>
             {
@@ -995,7 +1163,7 @@ namespace SDK.Helper
                     return false;
                 }
             });
-        }
+        }*/
         
         private async void OnAttTransactionEx(string EnrollNumber, int IsInValid, int AttState, int VerifyMethod, int Year, int Month, int Day, int Hour, int Minute, int Second, int WorkCode)
         {
@@ -1033,6 +1201,10 @@ namespace SDK.Helper
             {
                 _logger.LogError(ex, "Error processing attendance transaction: {Message}", ex.Message);
             }
+            finally
+            {
+                await Task.Run(() => _deviceState.Connector.RefreshData(_deviceState.DeviceNumber));
+            }
         }
         private async void OnEnrollFingerExEvent(string EnrollNumber, int FingerIndex, int ActionResult, int TemplateLength)
         {
@@ -1069,6 +1241,10 @@ namespace SDK.Helper
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error processing enrollment event: {Message}", ex.Message);
+            }
+            finally
+            {
+                await Task.Run(() => _deviceState.Connector.RefreshData(_deviceState.DeviceNumber));
             }
         }
         #endregion

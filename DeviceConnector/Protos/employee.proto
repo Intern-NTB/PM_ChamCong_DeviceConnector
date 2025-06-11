@@ -7,28 +7,65 @@ option csharp_namespace = "DeviceConnector.Protos";
 package employee;
 
 service EmployeeService {
-  rpc UploadEmployeeData (UploadEmployeeDataRequest) returns (UploadEmployeeDataResponse);
-  rpc UploadFingerprint (UploadFingerprintRequest) returns (UploadFingerprintResponse);
-  rpc BatchUploadEmployeeData (BatchUploadEmployeeDataRequest) returns (BatchUploadEmployeeDataResponse);
-  rpc BatchUploadFingerprints (BatchUploadFingerprintsRequest) returns (BatchUploadFingerprintsResponse);
+  rpc UploadEmployeeData (UploadEmployeeDataRequest) returns (BaseResponse);
+  rpc UploadFingerprint (UploadFingerprintRequest) returns (BaseResponse);
+  rpc BatchUploadEmployeeData (BatchUploadEmployeeDataRequest) returns (BatchUploadResponse);
+  rpc BatchUploadFingerprints (BatchUploadFingerprintsRequest) returns (BatchUploadResponse);
   rpc GetEmployeeData (GetEmployeeDataRequest) returns (GetEmployeeDataResponse);
+  rpc GetFingerprintData (GetFingerprintDataRequest) returns (BaseResponse);
   rpc GetAllEmployees (google.protobuf.Empty) returns (GetAllEmployeesResponse);
   rpc GetAllFingerprints (google.protobuf.Empty) returns (GetAllFingerprintsResponse);
-  rpc DeleteEmployeeData(DeleteEmployeeDataRequest) returns (DeleteEmployeeDataResponse);
+  rpc DeleteEmployeeData(DeleteEmployeeDataRequest) returns (BaseResponse);
+  rpc DeleteFingerprint (DeleteFingerprintRequest) returns (BaseResponse);
+}
+
+// Base response type for all responses
+message BaseResponse {
+  bool success = 1;
+  string message = 2;
+}
+
+// Response for batch operations
+message BatchUploadResponse {
+  bool success = 1;
+  string message = 2;
+  repeated UploadResult results = 3;
+  int32 success_count = 4;
+  int32 failure_count = 5;
+}
+
+message GetEmployeeDataResponse {
+  bool success = 1;
+  string message = 2;
+  employee employee = 3; 
+}
+
+message GetAllEmployeesResponse {
+  bool success = 1;
+  string message = 2;
+  repeated employee employees = 3;
+}
+
+message GetAllFingerprintsResponse {
+  bool success = 1;
+  string message = 2;
+  int32 total_count = 3;
+  int32 success_count = 4;
 }
 
 message employee {
-	int32 employeeId = 1;
-	string name = 2;
-	string password =3;
-	int32 privilege = 4; // 0: normal, 1: admin, 2: superadmin
-	bool enable = 5; // true: enabled, false: disabled
+  int32 employeeId = 1;
+  string name = 2;
+  string password = 3;
+  int32 privilege = 4; // 0: normal, 1: admin, 2: superadmin
+  bool enable = 5; // true: enabled, false: disabled
 }
 
 message fingerprint {
-    int32 employeeId = 1;
-    int32 fingerIndex = 2;
-    string fingerData = 3;
+  int32 employeeId = 1;
+  int32 fingerIndex = 2;
+  string fingerData = 3;
+  int32 fingerLength = 4;
 }
 
 message UploadResult {
@@ -38,70 +75,34 @@ message UploadResult {
 }
 
 message UploadEmployeeDataRequest {
-	employee employee = 1;
-}
-
-message UploadEmployeeDataResponse {
-	bool success = 1;
-	string message = 2;
+  employee employee = 1;
 }
 
 message UploadFingerprintRequest {
-	fingerprint fingerprint = 1;
-}
-
-message UploadFingerprintResponse {
-	bool success = 1;
-	string message = 2;
+  fingerprint fingerprint = 1;
 }
 
 message BatchUploadEmployeeDataRequest {
   repeated employee employees = 1;
 }
 
-message BatchUploadEmployeeDataResponse {
-  repeated UploadResult results = 1;
-  int32 success_count = 2;
-  int32 failure_count = 3;
-  string message = 4;
-}
-
 message BatchUploadFingerprintsRequest {
-    repeated fingerprint fingerprints = 1;
-}
-
-message BatchUploadFingerprintsResponse {
-    repeated UploadResult results = 1;
-    int32 success_count = 2;
-    int32 failure_count = 3;
-    string message = 4;
+  repeated fingerprint fingerprints = 1;
 }
 
 message GetEmployeeDataRequest {
-	int32 employeeId = 1;
+  int32 employeeId = 1;
 }
 
-message GetEmployeeDataResponse {
-	employee employee = 1; 
-	string message = 2; 
-}
-
-message GetAllEmployeesResponse {
-	repeated employee employees = 1;
-	string message = 2; 
-}
-
-message GetAllFingerprintsResponse {
-    int32 total_count = 1;
-    int32 success_count = 2;
-    string message = 3;
+message GetFingerprintDataRequest {
+  int32 employeeId = 1;
 }
 
 message DeleteEmployeeDataRequest {
-	int32 employeeId = 1;
+  int32 employeeId = 1;
 }
 
-message DeleteEmployeeDataResponse {
-	bool success = 1;
-	string message = 2;
+message DeleteFingerprintRequest {
+  int32 employeeId = 1;
+  int32 fingerIndex = 2;
 }

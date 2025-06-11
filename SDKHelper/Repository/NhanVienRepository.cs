@@ -39,6 +39,51 @@ namespace SDK.Repository
             }
         }
 
+        public async Task<IEnumerable<NhanVienVanTay>> GetAllNhanVienVanTay()
+        {
+            if (_connection.State != ConnectionState.Open)
+            {
+                _connection.Open();
+            }
+
+            try
+            {
+                var vanTays = await _connection.QueryAsync<NhanVienVanTay>(
+                    "sp_read_all_vantay",
+                    commandType: CommandType.StoredProcedure);
+
+                return vanTays.ToList();
+            }
+            catch (Exception ex)
+            {
+                throw ex;
+            }
+        }
+
+        public async Task<IEnumerable<NhanVienVanTay>> GetNhanVienVanTay(int employeeId)
+        {
+            if(_connection.State != ConnectionState.Open)
+            {
+                _connection.Open();
+            }
+
+            try
+            {
+                var vanTays = await _connection.QueryAsync<NhanVienVanTay>(
+                    "sp_read_vantay",
+                    new
+                    {
+                        MaNhanVien = employeeId 
+                    },
+                    commandType: CommandType.StoredProcedure
+                );
+
+                return vanTays.ToList();
+            }catch(Exception ex)
+            {
+                throw ex;
+            }
+        }
         public async Task<int> SetNhanVienVanTay(NhanVienVanTay vanTay)
         {
             if (_connection.State != ConnectionState.Open)
@@ -57,27 +102,6 @@ namespace SDK.Repository
                     DuLieuVanTay = vanTay.DuLieuVanTay
                 },
                 commandType: System.Data.CommandType.StoredProcedure);
-            }
-            catch (Exception ex)
-            {
-                throw ex;
-            }
-        }
-
-        public async Task<IEnumerable<NhanVienVanTay>> GetAllNhanVienVanTay()
-        {
-            if (_connection.State != ConnectionState.Open)
-            {
-                _connection.Open();
-            }
-
-            try
-            {
-                var vanTays = await _connection.QueryAsync<NhanVienVanTay>(
-                    "sp_read_all_vantay",
-                    commandType: CommandType.StoredProcedure);
-
-                return vanTays.ToList();
             }
             catch (Exception ex)
             {
@@ -128,6 +152,30 @@ namespace SDK.Repository
                         throw;
                     }
                 }
+            }
+            catch (Exception ex)
+            {
+                throw ex;
+            }
+        }
+
+        public async Task<int> DeleteNhanVienVanTay(int maNhanVien, int viTriNgonTay)
+        {
+            if (_connection.State != ConnectionState.Open)
+            {
+                _connection.Open();
+            }
+
+            try
+            {
+                return await _connection.ExecuteAsync(
+                    "sp_delete_vantay",
+                    new
+                    {
+                        MaNhanVien = maNhanVien,
+                        ViTriNgonTay = viTriNgonTay
+                    },
+                    commandType: CommandType.StoredProcedure);
             }
             catch (Exception ex)
             {
