@@ -89,5 +89,27 @@ namespace DeviceConnector.Services
                 return new ClearAdminResponse { Success = false, Message = "Failed to clear admin data." };
             }
         }
+
+        public override async Task<SyncDeviceTimeResponse> SyncDeviceTime(Empty request, ServerCallContext context)
+        {
+            Debug.WriteLine("Received request to sync device time");
+            if (!_sdkHelper.GetConnectionStatus())
+            {
+                Debug.WriteLine("Not connected to any device.");
+                return new SyncDeviceTimeResponse { Success = false, Message = "Not connected to any device." };
+            }
+            bool result = await _sdkHelper.SyncDeviceTimeAsync();
+
+            if (result)
+            {
+                Debug.WriteLine("Successfully sync device time");
+                return new SyncDeviceTimeResponse { Success = true };
+            }
+            else
+            {
+                Debug.WriteLine("Failed to sync device time");
+                return new SyncDeviceTimeResponse { Success = false, Message = "Failed to sync device time" };
+            }
+        }
     }
 }

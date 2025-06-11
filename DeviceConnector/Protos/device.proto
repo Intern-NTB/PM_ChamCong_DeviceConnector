@@ -11,6 +11,7 @@ service DeviceConnector{
 	rpc Connect (ConnectRequest) returns (ConnectResponse);
 	rpc Disconnect (google.protobuf.Empty) returns (DisconnectResponse);
 	rpc ClearAdmin (google.protobuf.Empty) returns (ClearAdminResponse);
+	rpc SyncDeviceTime (google.protobuf.Empty) returns (SyncDeviceTimeResponse);
 }
 
 message GetDeviceSerialRequest {
@@ -37,6 +38,11 @@ message DisconnectResponse {
 }
 
 message ClearAdminResponse {
+	bool success = 1;
+	string message = 2;
+}
+
+message SyncDeviceTimeResponse {
 	bool success = 1;
 	string message = 2;
 }
