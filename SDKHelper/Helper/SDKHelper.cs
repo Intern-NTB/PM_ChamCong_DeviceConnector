@@ -429,7 +429,6 @@ namespace SDK.Helper
                         throw new InvalidOperationException("Not connected to the device.");
                     }
 
-                    
                     var employees = new List<Employee>();
                     bool readResult = await ReadAllWithTimeoutAsync(
                         () => _deviceState.Connector.ReadAllUserID(_deviceState.DeviceNumber),
@@ -453,10 +452,12 @@ namespace SDK.Helper
 
                         while (hasUser)
                         {
+                        // Clean up the name by removing null characters and trimming whitespace
+                            string cleanName = new string(Name.Where(c => !char.IsControl(c)).ToArray()).Trim();
                             employees.Add(new Employee
                             {
                                 employeeId = Int32.Parse(dwEnrollNumber),
-                                name = Name,
+                                name = cleanName,
                                 password = Password,
                                 privilege = Privilege,
                                 enabled = Enabled

@@ -126,44 +126,28 @@ namespace DeviceConnector.Services
             // Get employees from device
             var deviceEmployees = await sdkHelper.GetAllEmployeeAsync() ?? new List<Employee>();
 
-            // Get employees from database
-            var dbEmployees = await _nhanVienRepository.GetAllNhanVienAsync();
-
-            if (dbEmployees == null)
+            if (!deviceEmployees.Any())
             {
-                response.Message = "Failed to retrieve employees from database.";
-                response.Success = false;
-                return response;
-            }
-
-            // Create lookup of device employee IDs for efficient comparison
-            var deviceEmployeeIds = new HashSet<int>(deviceEmployees.Select(e => e.employeeId));
-
-            // Filter database employees to only include those not on the device
-            var employeesToAdd = dbEmployees.Where(dbEmp => !deviceEmployeeIds.Contains(dbEmp.MaNhanVien));
-
-            if (!deviceEmployees.Any() && !employeesToAdd.Any())
-            {
-                response.Message = "No employees found in device or database.";
+                response.Message = "No employees found in device";
                 response.Success = false;
                 return response;
             }
 
             // Add filtered database employees to response
-            foreach (var dbEmployee in employeesToAdd)
+            foreach (var Employee in deviceEmployees)
             {
                 response.Employees.Add(new Protos.employee
                 {
-                    EmployeeId = dbEmployee.MaNhanVien,
-                    Name = dbEmployee.HoTen,
-                    Password = string.Empty,
-                    Privilege = 0, 
-                    Enable = dbEmployee.TrangThai == "Đang làm" ? true : false
+                    EmployeeId = Employee.employeeId,
+                    Name = Employee.name,
+                    Password = Employee.password,
+                    Privilege = Employee.privilege, 
+                    Enable = Employee.enabled
                 });
             }
 
             response.Success = true;
-            response.Message = $"Employee list retrieved successfully. {deviceEmployees.Count} from device, {employeesToAdd.Count()} additional from database.";
+            response.Message = $"Employee list retrieved successfully. {deviceEmployees.Count} from device";
             return response;
         }
 
