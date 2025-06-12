@@ -9,7 +9,7 @@ namespace Shared.Entity
     public class NhanVien
     {
         public int MaNhanVien {  get; set; }
-        public int HoTen { get; set; }
-        public int TrangThai { get; set; }
+        public string HoTen { get; set; }
+        public string TrangThai { get; set; }
     }
 }
