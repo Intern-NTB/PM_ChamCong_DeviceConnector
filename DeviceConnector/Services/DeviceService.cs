@@ -8,55 +8,75 @@ namespace DeviceConnector.Services
 {
     public class DeviceService : Protos.DeviceConnector.DeviceConnectorBase
     {
-        private readonly SDKHelper _sdkHelper;
+        private readonly SDKHelperManager _sdkHelperManager;
 
-        public DeviceService(SDKHelper sdkHelper)
+        public DeviceService(SDKHelperManager sdkHelperManager)
         {
-            _sdkHelper = sdkHelper;
+            _sdkHelperManager = sdkHelperManager;
         }
 
-        public override async Task<ConnectResponse> Connect(ConnectRequest request, ServerCallContext context)
+        private SDKHelper GetSDKHelper(ServerCallContext context)
+        {
+            // Get JWT token from authorization header
+            var authHeader = context.GetHttpContext().Request.Headers["Authorization"].ToString();
+            if (string.IsNullOrEmpty(authHeader) || !authHeader.StartsWith("Bearer "))
+            {
+                throw new RpcException(new Status(StatusCode.Unauthenticated, "JWT token is required"));
+            }
+
+            // Extract the token (remove "Bearer " prefix)
+            var token = authHeader.Substring(7);
+            
+            // Use the token as client ID
+            return _sdkHelperManager.GetOrCreateSDKHelper(token);
+        }
+
+        public override async Task<BaseDeviceResponse> Connect(ConnectRequest request, ServerCallContext context)
         {
             Debug.WriteLine($"Received connection request for device: {request.IpAddress}, {request.Port}");
+            var sdkHelper = GetSDKHelper(context);
 
-            if (_sdkHelper.GetConnectionStatus())
+            if (sdkHelper.GetConnectionStatus())
             {
                 Debug.WriteLine("Already connected to the device.");
-                return new ConnectResponse { Success = true };
+                return new BaseDeviceResponse { Success = true };
             }
 
-            if (await _sdkHelper.ConnectAsync(request.IpAddress, request.Port))
+            if (await sdkHelper.ConnectAsync(request.IpAddress, request.Port))
             {
                 Debug.WriteLine($"Successfully connected to the device at {request.IpAddress}:{request.Port}");
-                return new ConnectResponse { Success = true };
+                return new BaseDeviceResponse { Success = true };
             }
             Debug.WriteLine($"Failed to connect to the device at {request.IpAddress}:{request.Port}");
-            return new ConnectResponse { Success = false, Message = "Failed to connect to the device." };
+            return new BaseDeviceResponse { Success = false, Message = "Failed to connect to the device." };
         }
 
-        public override async Task<DisconnectResponse> Disconnect(Empty request, ServerCallContext context)
+        public override async Task<BaseDeviceResponse> Disconnect(Empty request, ServerCallContext context)
         {
             Debug.WriteLine("Received disconnect request.");
-            if (!_sdkHelper.GetConnectionStatus())
+            var sdkHelper = GetSDKHelper(context);
+            if (!sdkHelper.GetConnectionStatus())
             {
                 Debug.WriteLine("Not connected to any device.");
-                return new DisconnectResponse { Success = false, Message = "Not connected to any device." };
+                return new BaseDeviceResponse { Success = false, Message = "Not connected to any device." };
             }
-            await _sdkHelper.DisconnectAsync();
+            await sdkHelper.DisconnectAsync();
+            _sdkHelperManager.RemoveSDKHelper(context.GetHttpContext().Request.Headers["Authorization"].ToString().Substring(7));
             Debug.WriteLine("Successfully disconnected from the device.");
-            return new DisconnectResponse { Success = true };
+            return new BaseDeviceResponse { Success = true };
         }
 
         public override async Task<GetDeviceSerialDeviceResponse> GetDeviceSerial(GetDeviceSerialRequest request, ServerCallContext context)
         {
             Debug.WriteLine("Received request for device serial number.");
-            if (!_sdkHelper.GetConnectionStatus())
+            var sdkHelper = GetSDKHelper(context);
+            if (!sdkHelper.GetConnectionStatus())
             {
                 Debug.WriteLine("Not connected to any device.");
                 return new GetDeviceSerialDeviceResponse { SerialNumber = "Not connected" };
             }
 
-            string serialNumber = await _sdkHelper.GetDeviceSerialAsync();
+            string serialNumber = await sdkHelper.GetDeviceSerialAsync();
             if (!string.IsNullOrEmpty(serialNumber))
             {
                 Debug.WriteLine($"Device serial number: {serialNumber}");
@@ -69,46 +89,72 @@ namespace DeviceConnector.Services
             }
         }
     
-        public override async Task<ClearAdminResponse> ClearAdmin(Empty request, ServerCallContext context)
+        public override async Task<BaseDeviceResponse> ClearAdmin(Empty request, ServerCallContext context)
         {
             Debug.WriteLine("Received request to clear admin data.");
-            if (!_sdkHelper.GetConnectionStatus())
+            var sdkHelper = GetSDKHelper(context);
+            if (!sdkHelper.GetConnectionStatus())
             {
                 Debug.WriteLine("Not connected to any device.");
-                return new ClearAdminResponse { Success = false, Message = "Not connected to any device." };
+                return new BaseDeviceResponse { Success = false, Message = "Not connected to any device." };
             }
-            bool result = await _sdkHelper.ClearAdminAsync();
+            bool result = await sdkHelper.ClearAdminAsync();
             if (result)
             {
                 Debug.WriteLine("Successfully cleared admin data.");
-                return new ClearAdminResponse { Success = true };
+                return new BaseDeviceResponse { Success = true };
             }
             else
             {
                 Debug.WriteLine("Failed to clear admin data.");
-                return new ClearAdminResponse { Success = false, Message = "Failed to clear admin data." };
+                return new BaseDeviceResponse { Success = false, Message = "Failed to clear admin data." };
             }
         }
 
-        public override async Task<SyncDeviceTimeResponse> SyncDeviceTime(Empty request, ServerCallContext context)
+        public override async Task<BaseDeviceResponse> ClearGLog(Empty empty, ServerCallContext context)
         {
-            Debug.WriteLine("Received request to sync device time");
-            if (!_sdkHelper.GetConnectionStatus())
+            Debug.WriteLine("Received request to clear GLog data.");
+            var sdkHelper = GetSDKHelper(context);
+            if (!sdkHelper.GetConnectionStatus())
             {
                 Debug.WriteLine("Not connected to any device.");
-                return new SyncDeviceTimeResponse { Success = false, Message = "Not connected to any device." };
+                return new BaseDeviceResponse { Success = false, Message = "Not connected to any device." };
             }
-            bool result = await _sdkHelper.SyncDeviceTimeAsync();
+
+            bool result = await sdkHelper.ClearAttendanceAsync();
+
+            if (result)
+            {
+                Debug.WriteLine("Successfully cleared GLog data.");
+                return new BaseDeviceResponse { Success = true };
+            }
+            else
+            {
+                Debug.WriteLine("Failed to clear GLog data.");
+                return new BaseDeviceResponse { Success = false, Message = "Failed to clear GLog data." };
+            }
+        }
+
+        public override async Task<BaseDeviceResponse> SyncDeviceTime(Empty request, ServerCallContext context)
+        {
+            Debug.WriteLine("Received request to sync device time");
+            var sdkHelper = GetSDKHelper(context);
+            if (!sdkHelper.GetConnectionStatus())
+            {
+                Debug.WriteLine("Not connected to any device.");
+                return new BaseDeviceResponse { Success = false, Message = "Not connected to any device." };
+            }
+            bool result = await sdkHelper.SyncDeviceTimeAsync();
 
             if (result)
             {
                 Debug.WriteLine("Successfully sync device time");
-                return new SyncDeviceTimeResponse { Success = true };
+                return new BaseDeviceResponse { Success = true };
             }
             else
             {
                 Debug.WriteLine("Failed to sync device time");
-                return new SyncDeviceTimeResponse { Success = false, Message = "Failed to sync device time" };
+                return new BaseDeviceResponse { Success = false, Message = "Failed to sync device time" };
             }
         }
     }

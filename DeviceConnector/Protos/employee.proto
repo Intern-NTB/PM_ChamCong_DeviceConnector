@@ -7,16 +7,17 @@ option csharp_namespace = "DeviceConnector.Protos";
 package employee;
 
 service EmployeeService {
-  rpc UploadEmployeeData (UploadEmployeeDataRequest) returns (BaseResponse);
-  rpc UploadFingerprint (UploadFingerprintRequest) returns (BaseResponse);
-  rpc BatchUploadEmployeeData (BatchUploadEmployeeDataRequest) returns (BatchUploadResponse);
-  rpc BatchUploadFingerprints (BatchUploadFingerprintsRequest) returns (BatchUploadResponse);
-  rpc GetEmployeeData (GetEmployeeDataRequest) returns (GetEmployeeDataResponse);
-  rpc GetFingerprintData (GetFingerprintDataRequest) returns (BaseResponse);
-  rpc GetAllEmployees (google.protobuf.Empty) returns (GetAllEmployeesResponse);
-  rpc GetAllFingerprints (google.protobuf.Empty) returns (GetAllFingerprintsResponse);
-  rpc DeleteEmployeeData(DeleteEmployeeDataRequest) returns (BaseResponse);
-  rpc DeleteFingerprint (DeleteFingerprintRequest) returns (BaseResponse);
+	rpc SyncAttendanceData (google.protobuf.Empty) returns (BaseResponse);
+	rpc UploadEmployeeData (UploadEmployeeDataRequest) returns (BaseResponse);
+	rpc UploadFingerprint (UploadFingerprintRequest) returns (BaseResponse);
+	rpc BatchUploadEmployeeData (BatchUploadEmployeeDataRequest) returns (BatchUploadResponse);
+	rpc BatchUploadFingerprints (BatchUploadFingerprintsRequest) returns (BatchUploadResponse);
+	rpc GetEmployeeData (GetEmployeeDataRequest) returns (GetEmployeeDataResponse);
+	rpc GetFingerprintData (GetFingerprintDataRequest) returns (BaseResponse);
+	rpc GetAllEmployees (google.protobuf.Empty) returns (GetAllEmployeesResponse);
+	rpc GetAllFingerprints (google.protobuf.Empty) returns (GetAllFingerprintsResponse);
+	rpc DeleteEmployeeData(DeleteEmployeeDataRequest) returns (BaseResponse);
+	rpc DeleteFingerprint (DeleteFingerprintRequest) returns (BaseResponse);
 }
 
 // Base response type for all responses

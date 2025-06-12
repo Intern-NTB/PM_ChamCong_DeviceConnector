@@ -8,10 +8,11 @@ package device;
 
 service DeviceConnector{
 	rpc GetDeviceSerial (GetDeviceSerialRequest) returns (GetDeviceSerialDeviceResponse);
-	rpc Connect (ConnectRequest) returns (ConnectResponse);
-	rpc Disconnect (google.protobuf.Empty) returns (DisconnectResponse);
-	rpc ClearAdmin (google.protobuf.Empty) returns (ClearAdminResponse);
-	rpc SyncDeviceTime (google.protobuf.Empty) returns (SyncDeviceTimeResponse);
+	rpc Connect (ConnectRequest) returns (BaseDeviceResponse);
+	rpc Disconnect (google.protobuf.Empty) returns (BaseDeviceResponse);
+	rpc ClearAdmin (google.protobuf.Empty) returns (BaseDeviceResponse);
+	rpc ClearGLog (google.protobuf.Empty) returns (BaseDeviceResponse);
+	rpc SyncDeviceTime (google.protobuf.Empty) returns (BaseDeviceResponse);
 }
 
 message GetDeviceSerialRequest {
@@ -27,22 +28,7 @@ message ConnectRequest {
 	int32 port = 2;
 }
 
-message ConnectResponse {
-	bool success = 1;
-	string message = 2;
-}
-
-message DisconnectResponse {
-	bool success = 1;
-	string message = 2;
-}
-
-message ClearAdminResponse {
-	bool success = 1;
-	string message = 2;
-}
-
-message SyncDeviceTimeResponse {
+message BaseDeviceResponse {
 	bool success = 1;
 	string message = 2;
 }

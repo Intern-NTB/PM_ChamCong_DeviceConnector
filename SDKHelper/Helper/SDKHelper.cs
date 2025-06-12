@@ -1,13 +1,14 @@
-﻿using System;
-using System.Collections.Generic;
-using zkemkeeper;
-using Shared.Model;
+﻿using Microsoft.Extensions.Logging;
 using Shared.Entity;
 using Shared.Interface;
-using Microsoft.Extensions.Logging;
-using System.Threading.Tasks;
-using System.Threading;
+using Shared.Model;
+using stdole;
+using System;
+using System.Collections.Generic;
 using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
+using zkemkeeper;
 
 namespace SDK.Helper
 {
@@ -52,17 +53,17 @@ namespace SDK.Helper
 
     public class SDKHelper : IDisposable
     {
-        private static readonly SemaphoreSlim _deviceLock = new SemaphoreSlim(1, 1);
+        private readonly SemaphoreSlim _deviceLock;
         private readonly DeviceState _deviceState;
         private readonly INhanVienRepository _nhanVienRepository;
         private readonly IChamCongRepository _chamCongRepository;
         private readonly ILogger<SDKHelper> _logger;
         private bool _disposed = false;
         private readonly CancellationTokenSource _cts = new CancellationTokenSource();
-        private const int LOCK_TIMEOUT_MS = 30000; // 30 seconds timeout
+        private const int LOCK_TIMEOUT_MS = 30000;
         private const int MAX_RETRY_ATTEMPTS = 3;
         private const int RETRY_DELAY_MS = 1000;
-        private const int READ_TIMEOUT_MS = 5000; // 5 seconds timeout for read operations
+        private const int READ_TIMEOUT_MS = 5000; 
         private const int READ_RETRY_ATTEMPTS = 2;
 
         public SDKHelper(INhanVienRepository nhanVienRepository, IChamCongRepository chamCongRepository, ILogger<SDKHelper> logger)
@@ -71,6 +72,7 @@ namespace SDK.Helper
             _nhanVienRepository = nhanVienRepository;
             _chamCongRepository = chamCongRepository;
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+            _deviceLock = new SemaphoreSlim(1, 1);
         }
 
         public void Dispose()
@@ -331,12 +333,13 @@ namespace SDK.Helper
                 try
                 {
                     _logger.LogInformation("Starting device disconnection...");
-                    
+
                     // Unregister events without taking another lock
                     try
                     {
                         _logger.LogInformation("Unregistering realtime events...");
-                        await Task.Run(() => {
+                        await Task.Run(() =>
+                        {
                             _deviceState.Connector.OnEnrollFingerEx -= new _IZKEMEvents_OnEnrollFingerExEventHandler(OnEnrollFingerExEvent);
                             _deviceState.Connector.OnAttTransactionEx -= new _IZKEMEvents_OnAttTransactionExEventHandler(OnAttTransactionEx);
                         });
@@ -346,7 +349,7 @@ namespace SDK.Helper
                     {
                         _logger.LogError(ex, "Error unregistering realtime events: {Message}", ex.Message);
                     }
-                    
+
                     // Then disconnect
                     await Task.Run(() => _deviceState.Connector.Disconnect());
                     _deviceState.IsConnected = false;
@@ -364,7 +367,7 @@ namespace SDK.Helper
             });
         }
 
-        public async Task<bool> ConnectAsync(string ipAddress, int port)
+        public async Task<bool> ConnectAsync(string ipAddress, int port, bool isRegRealTime = false)
         {
             return await ExecuteWithLockAsync<bool>(async () =>
             {
@@ -382,25 +385,28 @@ namespace SDK.Helper
                     _deviceState.IsConnected = true;
                     _deviceState.DeviceNumber = 1;
 
-                    // Register realtime events without taking another lock
-                    try
+                    if (isRegRealTime)
                     {
-                        _logger.LogInformation("Registering realtime events...");
-                        bool registerResult = await Task.Run(() => _deviceState.Connector.RegEvent(_deviceState.DeviceNumber, 65535));
-                        if (registerResult)
+                        // Register realtime events without taking another lock
+                        try
                         {
-                            _deviceState.Connector.OnEnrollFingerEx += new _IZKEMEvents_OnEnrollFingerExEventHandler(OnEnrollFingerExEvent);
-                            _deviceState.Connector.OnAttTransactionEx += new _IZKEMEvents_OnAttTransactionExEventHandler(OnAttTransactionEx);
-                            _logger.LogInformation("Successfully registered realtime events");
+                            _logger.LogInformation("Registering realtime events...");
+                            bool registerResult = await Task.Run(() => _deviceState.Connector.RegEvent(_deviceState.DeviceNumber, 65535));
+                            if (registerResult)
+                            {
+                                _deviceState.Connector.OnEnrollFingerEx += new _IZKEMEvents_OnEnrollFingerExEventHandler(OnEnrollFingerExEvent);
+                                _deviceState.Connector.OnAttTransactionEx += new _IZKEMEvents_OnAttTransactionExEventHandler(OnAttTransactionEx);
+                                _logger.LogInformation("Successfully registered realtime events");
+                            }
+                            else
+                            {
+                                _logger.LogWarning("Failed to register realtime events, but connection is still active");
+                            }
                         }
-                        else
+                        catch (Exception ex)
                         {
-                            _logger.LogWarning("Failed to register realtime events, but connection is still active");
+                            _logger.LogError(ex, "Error registering realtime events: {Message}", ex.Message);
                         }
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogError(ex, "Error registering realtime events: {Message}", ex.Message);
                     }
                 }
                 else
@@ -982,7 +988,6 @@ namespace SDK.Helper
                     }
                 });
             }
-            
             public async Task<(bool Success, int FingerprintsFound, int FingerprintsSaved)> GetAllFingerprintsForEmployeeAsync(int employeeId)
             {
                 return await ExecuteWithLockAsync<(bool Success, int FingerprintsFound, int FingerprintsSaved)>(async () =>
@@ -1090,6 +1095,121 @@ namespace SDK.Helper
                     return (fingerprintsFound > 0, fingerprintsFound, fingerprintsSaved);
                 });
             }
+        #endregion
+            #region User Record Methods
+            public async Task<bool> SyncAttendanceAsync()
+            {
+                return await ExecuteWithLockAsync<bool>(async () =>
+                {
+                    try
+                    {
+                        bool readResult = await ReadAllWithTimeoutAsync(() => _deviceState.Connector.ReadGeneralLogData(_deviceState.DeviceNumber), "ReadGeneralLogData");
+                        if (!readResult)
+                        {
+                            _logger.LogError("Failed to read general log data from device");
+                            return false;
+                        }
+
+                        string dwEnrollNumber = "";
+                        int dwVerifyMode = 0;
+                        int dwInOutMode = 0;
+                        int dwYear = 0;
+                        int dwMonth = 0;
+                        int dwDay = 0;
+                        int dwHour = 0;
+                        int dwMinute = 0;
+                        int dwSecond = 0;
+                        int dwWorkcode = 0;
+
+                        bool hasRecord = await Task.Run(() => _deviceState.Connector.SSR_GetGeneralLogData(
+                            _deviceState.Connector.MachineNumber,
+                            out dwEnrollNumber,
+                            out dwVerifyMode,
+                            out dwInOutMode,
+                            out dwYear,
+                            out dwMonth,
+                            out dwDay,
+                            out dwHour,
+                            out dwMinute,
+                            out dwSecond,
+                            ref dwWorkcode
+                            ));
+
+                        bool finalResult = false;
+                        while (hasRecord)
+                        {
+                            var attendanceTime = new DateTime(dwYear, dwMonth, dwDay, dwHour, dwMinute, dwSecond);
+                            _logger.LogInformation("Collecting attendance record for employee {EnrollNumber} at {Time}",
+                                dwEnrollNumber, attendanceTime);
+                            try
+                            {
+                                await _chamCongRepository.SetChamCong(dwEnrollNumber, attendanceTime);
+                                _logger.LogInformation("Successfully recorded attendance for employee {EnrollNumber} at {Time}",
+                                dwEnrollNumber, attendanceTime);
+                                finalResult = true;
+                            }
+                            catch (Exception ex)
+                            {
+                                // Kiểm tra xem có phải là lỗi SQL và có phải lỗi trùng lặp không
+                                if (ex is Microsoft.Data.SqlClient.SqlException sqlEx &&
+                                    sqlEx.Message.Contains("Dữ liệu quét vân tay tại thời điểm"))
+                                {
+                                    _logger.LogWarning("Skipped duplicate attendance record for employee {EnrollNumber} at {Time}. Reason: {ErrorMessage}",
+                                        dwEnrollNumber, attendanceTime, sqlEx.Message);
+                                    finalResult = true;
+                                }
+                                else
+                                {
+                                    throw ex;
+                                }
+                            }
+
+                            hasRecord = await Task.Run(() => _deviceState.Connector.SSR_GetGeneralLogData(
+                                _deviceState.Connector.MachineNumber,
+                                out dwEnrollNumber,
+                                out dwVerifyMode,
+                                out dwInOutMode,
+                                out dwYear,
+                                out dwMonth,
+                                out dwDay,
+                                out dwHour,
+                                out dwMinute,
+                                out dwSecond,
+                                ref dwWorkcode
+                            ));
+                        }
+
+                        return finalResult;
+                  
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "Error occurred during attendance sync");
+                        return false;
+                    }
+                    finally
+                    {
+                        _deviceState.Connector.RefreshData(_deviceState.DeviceNumber);
+                    }
+                });
+            }
+            public async Task<bool> ClearAttendanceAsync()
+            {
+                return await ExecuteWithLockAsync<bool>(async () =>
+                {
+                    try
+                    {
+                        bool result = await Task.Run(() => _deviceState.Connector.ClearGLog(_deviceState.DeviceNumber));
+
+                        return result;
+                    }
+                    catch(Exception ex)
+                    {
+                        _logger.LogError(ex, "Error occurred while clearing attendance records");
+                        return false;
+                    }
+                });
+            }
             #endregion
         #endregion
 
@@ -1103,7 +1223,6 @@ namespace SDK.Helper
                 {
                     throw new InvalidOperationException("Not connected to the device.");
                 }
-
                 bool result = await Task.Run(() => _deviceState.Connector.ClearAdministrators(_deviceState.DeviceNumber));
                 if (!result)
                 {

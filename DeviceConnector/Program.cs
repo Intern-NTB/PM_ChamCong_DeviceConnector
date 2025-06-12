@@ -5,8 +5,14 @@ using SDK.Helper;
 using SDK.Repository; 
 using Shared.Interface;
 using System.Data;
+using System.Text;
+
+Console.OutputEncoding = Encoding.UTF8;
 
 var builder = WebApplication.CreateBuilder(args);
+
+// Add user secrets configuration
+builder.Configuration.AddUserSecrets<Program>();
 
 // Configure thread pool settings to prevent thread starvation
 ThreadPool.SetMinThreads(100, 100);
@@ -19,8 +25,8 @@ builder.Services.AddGrpc(options =>
     options.EnableDetailedErrors = true;
 });
 
-// Register SDKHelper as Singleton since it handles long-running events
-builder.Services.AddSingleton<SDKHelper>();
+builder.Services.AddSingleton<SDKHelperManager>();
+builder.Services.AddTransient<SDKHelper>();
 
 // Register repositories as transient to avoid connection sharing issues
 builder.Services.AddTransient<INhanVienRepository, NhanVienRepository>();
@@ -38,6 +44,9 @@ builder.Services.AddTransient<IDbConnection>(sp =>
     };
     return new SqlConnection(connBuilder.ConnectionString);
 });
+
+// Add RealTimeService
+builder.Services.AddHostedService<RealTimeService>();
 
 // Enhanced logging
 builder.Services.AddLogging(builder =>
