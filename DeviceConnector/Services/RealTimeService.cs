@@ -31,58 +31,109 @@ namespace DeviceConnector.Services
 
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
         {
-            // Read device list from configuration
+            _logger.LogInformation("RealTimeService is starting.");
+
+            // Add a delay at startup to allow other services to initialize
+            await Task.Delay(TimeSpan.FromSeconds(5), stoppingToken);
+
             var devices = _configuration.GetSection("Devices").Get<List<DeviceConfig>>();
             if (devices == null || !devices.Any())
             {
-                _logger.LogWarning("No devices configured in user secrets");
+                _logger.LogWarning("No devices found in configuration. RealTimeService will not run.");
                 return;
+            }
+
+            // Initialize all device connections at startup
+            foreach (var device in devices)
+            {
+                var deviceId = $"{device.IpAddress}:{device.Port}";
+                var helper = _sdkHelperManager.GetOrCreateSDKHelper($"realtime_{deviceId}");
+                _deviceConnections[deviceId] = helper;
+                _logger.LogInformation("Initialized helper for device {DeviceId}", deviceId);
             }
 
             while (!stoppingToken.IsCancellationRequested)
             {
-                foreach (var device in devices)
+                try
                 {
-                    var deviceId = $"{device.IpAddress}:{device.Port}";
+                    _logger.LogDebug("Starting new device connection check cycle.");
                     
-                    // Get or create SDKHelper instance for this device
-                    if (!_deviceConnections.ContainsKey(deviceId))
+                    foreach (var device in devices)
                     {
-                        var helper = _sdkHelperManager.GetOrCreateSDKHelper($"realtime_{deviceId}");
-                        _deviceConnections[deviceId] = helper;
-                    }
+                        var deviceId = $"{device.IpAddress}:{device.Port}";
+                        var currentHelper = _deviceConnections[deviceId];
 
-                    var currentHelper = _deviceConnections[deviceId];
+                        // RELIABLE RECONNECT STRATEGY:
+                        // 1. Always attempt to disconnect first. This clears any stale/dead connections in the SDK.
+                        // 2. Then, attempt to connect. This establishes a fresh connection.
+                        // This mimics a full restart for the specific device without restarting the whole application.
+                        _logger.LogInformation("Attempting to refresh connection to device {DeviceId}...", deviceId);
 
-                    if (!currentHelper.GetConnectionStatus())
-                    {
-                        _logger.LogInformation($"Attempting to connect to device at {device.IpAddress}:{device.Port}");
-                        
-                        try
+                        bool connectionSuccessful = false;
+                        int retryCount = 0;
+                        const int maxRetries = 3;
+
+                        while (!connectionSuccessful && retryCount < maxRetries && !stoppingToken.IsCancellationRequested)
                         {
-                            bool connected = await currentHelper.ConnectAsync(device.IpAddress, device.Port, true);
-                            
-                            if (connected)
+                            try
                             {
-                                _logger.LogInformation($"Successfully connected to device at {device.IpAddress}:{device.Port}");
+                                // Step 1: Disconnect to clear any stale state.
+                                await currentHelper.DisconnectAsync();
+
+                                // Step 2: Connect to establish a fresh connection.
+                                bool connected = await currentHelper.ConnectAsync(device.IpAddress, device.Port, true);
+                                
+                                if (connected)
+                                {
+                                    _logger.LogInformation("Successfully established fresh connection to device {DeviceId}.", deviceId);
+                                    connectionSuccessful = true;
+                                }
+                                else
+                                {
+                                    retryCount++;
+                                    _logger.LogWarning("Failed to establish fresh connection to device {DeviceId}. Retry {RetryCount}/{MaxRetries}.", deviceId, retryCount, maxRetries);
+                                    
+                                    if (retryCount < maxRetries)
+                                    {
+                                        // Wait 2 seconds before retry
+                                        await Task.Delay(2000, stoppingToken);
+                                    }
+                                }
                             }
-                            else
+                            catch (Exception connEx)
                             {
-                                _logger.LogWarning($"Failed to connect to device at {device.IpAddress}:{device.Port}. Retrying in 5 seconds...");
-                                await Task.Delay(5000, stoppingToken);
+                                retryCount++;
+                                _logger.LogError(connEx, "Error during connection refresh for device {DeviceId}. Retry {RetryCount}/{MaxRetries}.", deviceId, retryCount, maxRetries);
+                                
+                                if (retryCount < maxRetries)
+                                {
+                                    // Wait 2 seconds before retry
+                                    await Task.Delay(2000, stoppingToken);
+                                }
                             }
                         }
-                        catch (Exception ex)
+
+                        if (!connectionSuccessful)
                         {
-                            _logger.LogError(ex, $"Error connecting to device at {device.IpAddress}:{device.Port}. Retrying in 5 seconds...");
-                            await Task.Delay(5000, stoppingToken);
+                            _logger.LogError("Failed to connect to device {DeviceId} after {MaxRetries} attempts. Will try again in next cycle.", deviceId, maxRetries);
                         }
                     }
+
+                    // Wait for the next cycle
+                    _logger.LogDebug("Device connection check cycle complete. Waiting for 30 seconds.");
+                    await Task.Delay(TimeSpan.FromSeconds(300), stoppingToken);
                 }
+                catch (Exception ex)
+                {
+                    // This is the crucial part. It catches ANY error in the loop.
+                    _logger.LogCritical(ex, "An unexpected error occurred in the RealTimeService execution loop. The service will attempt to recover and continue after a short delay.");
 
-                // Wait before checking connections again
-                await Task.Delay(10000, stoppingToken);
+                    // Wait for a moment before restarting the loop to prevent rapid-fire failures
+                    await Task.Delay(TimeSpan.FromSeconds(15), stoppingToken);
+                }
             }
+
+            _logger.LogInformation("RealTimeService is stopping.");
         }
 
         public override async Task StopAsync(CancellationToken cancellationToken)
