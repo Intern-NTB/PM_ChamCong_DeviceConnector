@@ -161,7 +161,25 @@ namespace SDK.Helper
                     try
                     {
                         cts = new CancellationTokenSource(READ_TIMEOUT_MS);
-                        var readTask = Task.Run(readOperation);
+                        var readTask = Task.Run(() =>
+                        {
+                            try
+                            {
+                                return readOperation();
+                            }
+                            catch (AccessViolationException avEx)
+                            {
+                                _logger.LogCritical(avEx, "Access violation in {Operation}. Device connection may be corrupted.", operationName);
+                                // Force disconnect to clear the corrupted state
+                                try
+                                {
+                                    _deviceState.Connector?.Disconnect();
+                                    _deviceState.IsConnected = false;
+                                }
+                                catch { }
+                                throw; // Re-throw to be caught by outer catch block
+                            }
+                        });
                         var completedTask = await Task.WhenAny(readTask, Task.Delay(READ_TIMEOUT_MS, cts.Token));
 
                         if (completedTask == readTask)
@@ -190,6 +208,18 @@ namespace SDK.Helper
                     {
                         await Task.Delay(1000 * attempts);
                     }
+                }
+                catch (AccessViolationException avEx)
+                {
+                    _logger.LogCritical(avEx, "Critical access violation in {Operation}. Device connection is corrupted.", operationName);
+                    // Force disconnect to clear the corrupted state
+                    try
+                    {
+                        _deviceState.Connector?.Disconnect();
+                        _deviceState.IsConnected = false;
+                    }
+                    catch { }
+                    throw new InvalidOperationException($"Device connection is corrupted during {operationName}. Please reconnect.", avEx);
                 }
                 catch (OperationCanceledException)
                 {
@@ -422,17 +452,46 @@ namespace SDK.Helper
             #region User Information Methods
             public async Task<List<Employee>> GetAllEmployeeAsync()
             {
-                try
+                return await ExecuteWithLockAsync<List<Employee>>(async () =>
                 {
                     if (!_deviceState.IsConnected)
                     {
                         throw new InvalidOperationException("Not connected to the device.");
                     }
 
+                    // Add additional connection validation before making SDK calls
+                    if (_deviceState.Connector == null)
+                    {
+                        throw new InvalidOperationException("Device connector is null.");
+                    }
+
                     var employees = new List<Employee>();
-                    bool readResult = await ReadAllWithTimeoutAsync(
-                        () => _deviceState.Connector.ReadAllUserID(_deviceState.DeviceNumber),
-                        "ReadAllUserID");
+                    
+                    // Wrap the SDK call in additional error handling
+                    bool readResult = false;
+                    try
+                    {
+                        readResult = await ReadAllWithTimeoutAsync(
+                            () => _deviceState.Connector.ReadAllUserID(_deviceState.DeviceNumber),
+                            "ReadAllUserID");
+                    }
+                    catch (AccessViolationException avEx)
+                    {
+                        _logger.LogCritical(avEx, "Access violation occurred while reading user IDs. This may indicate a corrupted connection or device issue.");
+                        // Force disconnect to clear the corrupted state
+                        try
+                        {
+                            _deviceState.Connector.Disconnect();
+                            _deviceState.IsConnected = false;
+                        }
+                        catch { }
+                        throw new InvalidOperationException("Device connection is corrupted. Please reconnect.", avEx);
+                    }
+                    catch (Exception sdkEx)
+                    {
+                        _logger.LogError(sdkEx, "SDK error occurred while reading user IDs.");
+                        throw;
+                    }
 
                     if (readResult)
                     {
@@ -442,27 +501,9 @@ namespace SDK.Helper
                         int Privilege = 0;
                         bool Enabled = false;
 
-                        bool hasUser = await Task.Run(() => _deviceState.Connector.SSR_GetAllUserInfo(
-                            _deviceState.DeviceNumber, 
-                            out dwEnrollNumber, 
-                            out Name, 
-                            out Password, 
-                            out Privilege, 
-                            out Enabled));
-
-                        while (hasUser)
+                        bool hasUser = false;
+                        try
                         {
-                        // Clean up the name by removing null characters and trimming whitespace
-                            string cleanName = new string(Name.Where(c => !char.IsControl(c)).ToArray()).Trim();
-                            employees.Add(new Employee
-                            {
-                                employeeId = Int32.Parse(dwEnrollNumber),
-                                name = cleanName,
-                                password = Password,
-                                privilege = Privilege,
-                                enabled = Enabled
-                            });
-
                             hasUser = await Task.Run(() => _deviceState.Connector.SSR_GetAllUserInfo(
                                 _deviceState.DeviceNumber, 
                                 out dwEnrollNumber, 
@@ -471,15 +512,64 @@ namespace SDK.Helper
                                 out Privilege, 
                                 out Enabled));
                         }
+                        catch (AccessViolationException avEx)
+                        {
+                            _logger.LogCritical(avEx, "Access violation occurred while reading user info. This may indicate a corrupted connection or device issue.");
+                            // Force disconnect to clear the corrupted state
+                            try
+                            {
+                                _deviceState.Connector.Disconnect();
+                                _deviceState.IsConnected = false;
+                            }
+                            catch { }
+                            throw new InvalidOperationException("Device connection is corrupted. Please reconnect.", avEx);
+                        }
+
+                        while (hasUser)
+                        {
+                            try
+                            {
+                                // Clean up the name by removing null characters and trimming whitespace
+                                string cleanName = new string(Name.Where(c => !char.IsControl(c)).ToArray()).Trim();
+                                employees.Add(new Employee
+                                {
+                                    employeeId = Int32.Parse(dwEnrollNumber),
+                                    name = cleanName,
+                                    password = Password,
+                                    privilege = Privilege,
+                                    enabled = Enabled
+                                });
+
+                                hasUser = await Task.Run(() => _deviceState.Connector.SSR_GetAllUserInfo(
+                                    _deviceState.DeviceNumber, 
+                                    out dwEnrollNumber, 
+                                    out Name, 
+                                    out Password, 
+                                    out Privilege, 
+                                    out Enabled));
+                            }
+                            catch (AccessViolationException avEx)
+                            {
+                                _logger.LogCritical(avEx, "Access violation occurred while reading user info in loop. This may indicate a corrupted connection or device issue.");
+                                // Force disconnect to clear the corrupted state
+                                try
+                                {
+                                    _deviceState.Connector.Disconnect();
+                                    _deviceState.IsConnected = false;
+                                }
+                                catch { }
+                                throw new InvalidOperationException("Device connection is corrupted. Please reconnect.", avEx);
+                            }
+                            catch (Exception loopEx)
+                            {
+                                _logger.LogError(loopEx, "Error processing user data in loop. Stopping user enumeration.");
+                                break; // Exit the loop to prevent infinite errors
+                            }
+                        }
                     }
                     
                     return employees;
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "Error getting all employees");
-                    throw;
-                }
+                }, allowRetry: true);
             }
             public async Task<Employee> GetUserAsync(int employeeId)
             {
