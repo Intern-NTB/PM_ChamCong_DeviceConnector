@@ -798,16 +798,17 @@ namespace SDK.Helper
                         throw new InvalidOperationException("Not connected to the device.");
                     }
 
+                    // Lấy danh sách nhân viên trước khi acquire lock
+                    var employees = await GetAllEmployeeAsync();
+                    if (employees == null || !employees.Any())
+                    {
+                        _logger.LogWarning("No employees found on device");
+                        return (false, 0, 0);
+                    }
+                    _logger.LogInformation("Found {Count} employees on device", employees.Count);
+
                     return await ExecuteWithLockAsync<(bool Success, int TotalFound, int SavedCount)>(async () =>
                     {
-                        var employees = await GetAllEmployeeAsync();
-                        if (employees == null || !employees.Any())
-                        {
-                            _logger.LogWarning("No employees found on device");
-                            return (false, 0, 0);
-                        }
-                        _logger.LogInformation("Found {Count} employees on device", employees.Count);
-
                         var existingFingerprints = await _nhanVienRepository.GetAllNhanVienVanTay();
                         var existingFingerprintDict = existingFingerprints
                             .ToDictionary(
